@@ -1,0 +1,12 @@
+.env
+shop.db
+shop.db-*
+*.db
+*.db-wal
+*.db-shm
+bot.log
+*.log
+__pycache__/
+*.pyc
+data/
+reduxshop-bothost.zip
