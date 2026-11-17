@@ -1867,6 +1867,7 @@ async def handle_error(event: ErrorEvent) -> bool:
 
 async def main() -> None:
     await db.connect()
+    await db.apply_price_multiplier(config.PRICE_MULTIPLIER)
     # Не выбрасываем сообщения, отправленные пока бот лежал: после рестарта
     # он их обработает и ответит клиентам.
     await bot.delete_webhook(drop_pending_updates=False)
@@ -1889,6 +1890,7 @@ async def main() -> None:
     else:
         logging.info("Автооплата выключена — работает ручная оплата по реквизитам")
     logging.info("База данных: %s", config.DB_PATH)
+    logging.info("Наценка каталога: ×%s", config.PRICE_MULTIPLIER)
     logging.info("ReduxShop запущен")
     try:
         await dp.start_polling(bot)

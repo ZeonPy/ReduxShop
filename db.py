@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -139,6 +140,39 @@ class Database:
 
         await self.execute(
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('countries', '1')"
+        )
+
+    async def apply_price_multiplier(self, multiplier: float) -> None:
+        """Держит розничные цены каталога на заданной наценке.
+
+        При первом запуске с наценкой цены товаров умножаются, коэффициент
+        сохраняется в meta. При следующем запуске с тем же коэффициентом
+        ничего не меняется, поэтому рестарты не удваивают цены повторно.
+        Если коэффициент в PRICE_MULTIPLIER изменить, цены пересчитаются
+        пропорционально старому значению.
+        """
+        if multiplier <= 0:
+            return
+        stored = await self.scalar("SELECT value FROM meta WHERE key = 'price_multiplier'")
+        try:
+            previous = float(stored) if stored else 1.0
+        except ValueError:
+            previous = 1.0
+        if previous <= 0:
+            previous = 1.0
+        if abs(previous - multiplier) < 1e-4:
+            return
+        ratio = multiplier / previous
+        await self.execute(
+            "UPDATE products SET price = MAX(1, CAST(ROUND(price * ?) AS INTEGER))",
+            (ratio,),
+        )
+        await self.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('price_multiplier', ?)",
+            (str(multiplier),),
+        )
+        logging.info(
+            "Цены каталога пересчитаны: наценка ×%s (было ×%s)", multiplier, previous
         )
 
     async def execute(self, sql: str, params: tuple = ()) -> aiosqlite.Cursor:

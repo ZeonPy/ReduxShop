@@ -34,6 +34,14 @@ ADMIN_IDS = {
 SHOP_NAME = os.getenv("SHOP_NAME", "ReduxShop").strip() or "ReduxShop"
 SHOP_LINK = os.getenv("SHOP_LINK", "https://t.me/reduxstore").strip()
 CURRENCY = os.getenv("CURRENCY", "₽").strip() or "₽"
+
+# Розничная наценка на цены каталога. 2.0 — продаём в два раза дороже закупки.
+try:
+    PRICE_MULTIPLIER = float(os.getenv("PRICE_MULTIPLIER", "2").replace(",", "."))
+except ValueError:
+    PRICE_MULTIPLIER = 2.0
+if PRICE_MULTIPLIER <= 0:
+    PRICE_MULTIPLIER = 2.0
 PAYMENT_DETAILS = (
     os.getenv("PAYMENT_DETAILS", "+79631969503")
     .replace("\\n", "\n")
