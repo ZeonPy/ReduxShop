@@ -39,6 +39,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import config
+from banners import show_screen
 from db import Database
 
 logging.basicConfig(
@@ -591,11 +592,13 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.clear()
     user = message.from_user
     await db.upsert_user(user.id, user.username, user.full_name or "")
-    await message.answer(
+    await show_screen(
+        message,
+        "main",
         f"👋 Добро пожаловать в {config.SHOP_NAME}!\n\n"
         "Здесь можно купить виртуальный номер для приёма SMS.\n"
         "Выбери раздел ниже 👇",
-        reply_markup=kb_main(is_admin(user.id)),
+        kb_main(is_admin(user.id)),
     )
 
 
@@ -607,7 +610,9 @@ async def cmd_help(message: Message, state: FSMContext) -> None:
         if auto_payment_enabled()
         else "«✅ Я оплатил» — сообщить об оплате по реквизитам."
     )
-    await message.answer(
+    await show_screen(
+        message,
+        "about",
         f"ℹ️ {config.SHOP_NAME}\n\n"
         "🛍 Каталог — товары и цены\n"
         "📦 Мои заказы — статусы и выданные данные\n"
@@ -615,14 +620,15 @@ async def cmd_help(message: Message, state: FSMContext) -> None:
         "ℹ️ О магазине — ссылка на канал\n\n"
         f"Команды: /start, /help, /paysupport, /id\n"
         f"Чтобы купить: Каталог → товар → «Купить» → {payment_help}",
-        reply_markup=kb_main(is_admin(message.from_user.id)),
+        kb_main(is_admin(message.from_user.id)),
     )
-
 
 @dp.message(Command("paysupport"))
 async def cmd_paysupport(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer(
+    await show_screen(
+        message,
+        "support",
         "💳 Помощь по оплате и возвратам\n\n"
         "Если деньги списались, а товар не пришёл — напиши сюда одним сообщением:\n"
         "• номер заказа;\n"
@@ -651,9 +657,11 @@ async def cmd_catalog(message: Message, state: FSMContext) -> None:
         return
     pages = max(1, (total + CATALOG_PAGE_SIZE - 1) // CATALOG_PAGE_SIZE)
     categories = await db.list_categories(CATALOG_PAGE_SIZE, 0)
-    await message.answer(
+    await show_screen(
+        message,
+        "catalog",
         catalog_text(total, 0, pages),
-        reply_markup=kb_catalog(categories, 0, pages),
+        kb_catalog(categories, 0, pages),
     )
 
 
@@ -669,7 +677,12 @@ async def cmd_admin(message: Message, state: FSMContext) -> None:
     if not await require_admin(message):
         return
     await state.clear()
-    await message.answer("🛠 Админ-панель ReduxShop\nВыбери раздел:", reply_markup=kb_admin_panel())
+    await show_screen(
+        message,
+        "admin",
+        "🛠 Админ-панель ReduxShop\nВыбери раздел:",
+        kb_admin_panel(),
+    )
 
 
 @dp.message(Command("cancel"))
@@ -689,8 +702,9 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
 @dp.callback_query(F.data == "menu")
 async def cb_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "main",
         f"🏠 Главное меню {config.SHOP_NAME}\nВыбери раздел 👇",
         kb_main(is_admin(callback.from_user.id)),
     )
@@ -702,16 +716,18 @@ async def cb_catalog(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     total = await db.count_categories()
     if not total:
-        await safe_edit(
-            callback.message,
+        await show_screen(
+            callback,
+            "catalog",
             "🛍 Каталог пока пуст. Загляни позже.",
             kb_main(is_admin(callback.from_user.id)),
         )
     else:
         pages = max(1, (total + CATALOG_PAGE_SIZE - 1) // CATALOG_PAGE_SIZE)
         categories = await db.list_categories(CATALOG_PAGE_SIZE, 0)
-        await safe_edit(
-            callback.message,
+        await show_screen(
+            callback,
+            "catalog",
             catalog_text(total, 0, pages),
             kb_catalog(categories, 0, pages),
         )
@@ -727,8 +743,9 @@ async def cb_catalog_page(callback: CallbackQuery) -> None:
     pages = max(1, (total + CATALOG_PAGE_SIZE - 1) // CATALOG_PAGE_SIZE)
     page = min(max(cb_id(callback.data), 0), pages - 1)
     categories = await db.list_categories(CATALOG_PAGE_SIZE, page)
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "catalog",
         catalog_text(total, page, pages),
         kb_catalog(categories, page, pages),
     )
@@ -753,7 +770,7 @@ async def cb_category(callback: CallbackQuery) -> None:
             f"{category['title']}\n\n"
             "В этой стране пока нет товаров в наличии. Загляни позже."
         )
-    await safe_edit(callback.message, text, kb_category(category, products))
+    await show_screen(callback, "country", text, kb_category(category, products))
     await callback.answer()
 
 
@@ -770,7 +787,7 @@ async def cb_product(callback: CallbackQuery) -> None:
         f"💰 Цена: {money(product['price'])}\n"
         f"📦 В наличии: {stock_text}"
     )
-    await safe_edit(callback.message, text, kb_product(product))
+    await show_screen(callback, "product", text, kb_product(product))
     await callback.answer()
 
 
@@ -807,14 +824,14 @@ async def cb_buy(callback: CallbackQuery, state: FSMContext) -> None:
     if auto_payment_enabled():
         sent = await send_order_invoice(callback.message.chat.id, order)
         if sent:
-            await safe_edit(callback.message, invoice_text(order), kb_payment(order_id))
+            await show_screen(callback, "payment", invoice_text(order), kb_payment(order_id))
             await callback.answer("Счёт на оплату отправлен 👇")
             return
         logging.warning(
             "Автооплата включена, но счёт по заказу %s не ушёл — показываю ручную оплату.",
             order_id,
         )
-    await safe_edit(callback.message, payment_text(order), kb_payment(order_id))
+    await show_screen(callback, "payment", payment_text(order), kb_payment(order_id))
     await callback.answer()
 
 
@@ -1003,14 +1020,16 @@ async def cb_my_orders(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     orders = await db.list_user_orders(callback.from_user.id, 10)
     if not orders:
-        await safe_edit(
-            callback.message,
+        await show_screen(
+            callback,
+            "orders",
             "📦 У тебя пока нет заказов.\nЗагляни в каталог 👇",
             kb_main(is_admin(callback.from_user.id)),
         )
     else:
-        await safe_edit(
-            callback.message,
+        await show_screen(
+            callback,
+            "orders",
             "📦 Твои последние заказы\nВыбери заказ, чтобы посмотреть детали:",
             kb_my_orders(orders),
         )
@@ -1035,15 +1054,16 @@ async def cb_my_order(callback: CallbackQuery) -> None:
         if stock:
             text += f"\n\n🔑 Выданный товар:\n{stock['content']}"
 
-    await safe_edit(callback.message, text, kb_my_order(order))
+    await show_screen(callback, "orders", text, kb_my_order(order))
     await callback.answer()
 
 
 @dp.callback_query(F.data == "about")
 async def cb_about(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "about",
         f"ℹ️ {config.SHOP_NAME}\n\n"
         "Магазин виртуальных номеров для приёма SMS.\n"
         f"Наш канал: {config.SHOP_LINK}\n\n"
@@ -1058,8 +1078,9 @@ async def cb_about(callback: CallbackQuery, state: FSMContext) -> None:
 async def cb_support(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     ticket = await db.get_open_ticket(callback.from_user.id)
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "support",
         "🆘 Поддержка ReduxShop\n\n"
         "Напиши сообщение одним текстом — я передам его оператору. "
         "Ответ придёт сюда же.\n\n"
@@ -1079,8 +1100,9 @@ async def cb_ticket_user_close(callback: CallbackQuery, state: FSMContext) -> No
     await state.clear()
     await db.close_ticket(ticket["id"])
     await notify_admins(f"✅ Клиент закрыл обращение #{ticket['id']}")
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "support",
         "✅ Обращение закрыто. Если появится новый вопрос — снова нажми «🆘 Поддержка».",
         kb_main(is_admin(callback.from_user.id)),
     )
@@ -1146,9 +1168,11 @@ async def cmd_addproduct(message: Message, state: FSMContext) -> None:
     pages = max(1, (total + ADMIN_CATEGORIES_PAGE_SIZE - 1) // ADMIN_CATEGORIES_PAGE_SIZE)
     categories = await db.list_categories(ADMIN_CATEGORIES_PAGE_SIZE, 0)
     await state.set_state(AddProduct.category)
-    await message.answer(
+    await show_screen(
+        message,
+        "admin",
         addproduct_categories_text(0, pages),
-        reply_markup=kb_addproduct_categories(categories, 0, pages),
+        kb_addproduct_categories(categories, 0, pages),
     )
 
 
@@ -1160,8 +1184,9 @@ async def addproduct_category_page(callback: CallbackQuery) -> None:
     pages = max(1, (total + ADMIN_CATEGORIES_PAGE_SIZE - 1) // ADMIN_CATEGORIES_PAGE_SIZE)
     page = min(max(cb_id(callback.data), 0), pages - 1)
     categories = await db.list_categories(ADMIN_CATEGORIES_PAGE_SIZE, page)
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "admin",
         addproduct_categories_text(page, pages),
         kb_addproduct_categories(categories, page, pages),
     )
@@ -1180,10 +1205,12 @@ async def addproduct_category_pick(callback: CallbackQuery, state: FSMContext) -
         category_id=category["id"], category_title=category["title"]
     )
     await state.set_state(AddProduct.title)
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "admin",
         f"📦 Новый товар\nКатегория: {category['title']}\n\n"
         "Отправь название товара.\n/cancel — отмена.",
+        kb_admin_panel(),
     )
     await callback.answer()
 
@@ -1193,7 +1220,7 @@ async def addproduct_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     if not await admin_callback(callback):
         return
     await state.clear()
-    await safe_edit(callback.message, "Добавление товара отменено.", kb_admin_panel())
+    await show_screen(callback, "admin", "Добавление товара отменено.", kb_admin_panel())
     await callback.answer()
 
 
@@ -1329,8 +1356,10 @@ async def cmd_stock(message: Message) -> None:
         f"{product['stock']} шт."
         for product in products
     ]
-    await message.answer(
-        f"📦 Товары и остатки (первые 30 из {total}):\n\n" + "\n".join(lines)
+    await show_screen(
+        message,
+        "admin",
+        f"📦 Товары и остатки (первые 30 из {total}):\n\n" + "\n".join(lines),
     )
 
 
@@ -1448,8 +1477,9 @@ async def cb_admin_panel(callback: CallbackQuery, state: FSMContext) -> None:
     if not await admin_callback(callback):
         return
     await state.clear()
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "admin",
         "🛠 Админ-панель ReduxShop\nВыбери раздел:",
         kb_admin_panel(),
     )
@@ -1463,10 +1493,11 @@ async def cb_admin_orders(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     orders = await db.list_orders(15)
     if not orders:
-        await safe_edit(callback.message, "🧾 Заказов пока нет.", kb_admin_panel())
+        await show_screen(callback, "admin", "🧾 Заказов пока нет.", kb_admin_panel())
     else:
-        await safe_edit(
-            callback.message,
+        await show_screen(
+            callback,
+            "admin",
             "🧾 Последние заказы\nВыбери заказ:",
             kb_admin_orders(orders),
         )
@@ -1481,7 +1512,7 @@ async def cb_admin_order(callback: CallbackQuery) -> None:
     if order is None:
         await callback.answer("Заказ не найден.", show_alert=True)
         return
-    await safe_edit(callback.message, admin_order_text(order), kb_admin_order(order))
+    await show_screen(callback, "admin", admin_order_text(order), kb_admin_order(order))
     await callback.answer()
 
 
@@ -1527,7 +1558,7 @@ async def cb_admin_deliver(callback: CallbackQuery) -> None:
     await callback.answer(message, show_alert=not ok)
     order = await db.get_order(order_id)
     if order:
-        await safe_edit(callback.message, admin_order_text(order), kb_admin_order(order))
+        await show_screen(callback, "admin", admin_order_text(order), kb_admin_order(order))
 
 
 @dp.callback_query(F.data.startswith("adm:markpaid:"))
@@ -1544,7 +1575,7 @@ async def cb_admin_markpaid(callback: CallbackQuery) -> None:
         return
     await db.mark_paid(order_id)
     order = await db.get_order(order_id)
-    await safe_edit(callback.message, admin_order_text(order), kb_admin_order(order))
+    await show_screen(callback, "admin", admin_order_text(order), kb_admin_order(order))
     await callback.answer("Оплата отмечена.")
 
 
@@ -1573,7 +1604,7 @@ async def cb_admin_cancel(callback: CallbackQuery) -> None:
     except Exception as exc:
         logging.warning("Не смог уведомить клиента %s: %s", order["user_id"], exc)
     order = await db.get_order(order_id)
-    await safe_edit(callback.message, admin_order_text(order), kb_admin_order(order))
+    await show_screen(callback, "admin", admin_order_text(order), kb_admin_order(order))
     await callback.answer("Заказ отменён.")
 
 
@@ -1584,10 +1615,11 @@ async def cb_admin_tickets(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     tickets = await db.list_open_tickets(15)
     if not tickets:
-        await safe_edit(callback.message, "🆘 Открытых обращений нет.", kb_admin_panel())
+        await show_screen(callback, "admin", "🆘 Открытых обращений нет.", kb_admin_panel())
     else:
-        await safe_edit(
-            callback.message,
+        await show_screen(
+            callback,
+            "admin",
             "🆘 Открытые обращения\nВыбери обращение:",
             kb_admin_tickets(tickets),
         )
@@ -1617,7 +1649,7 @@ async def cb_admin_ticket(callback: CallbackQuery) -> None:
         f"Создано: {fmt_dt(ticket['created_at'])}\n\n"
         "История:\n" + ("\n\n".join(history) if history else "сообщений нет")
     )
-    await safe_edit(callback.message, text, kb_admin_ticket(ticket))
+    await show_screen(callback, "admin", text, kb_admin_ticket(ticket))
     await callback.answer()
 
 
@@ -1662,8 +1694,9 @@ async def cb_admin_tclose(callback: CallbackQuery) -> None:
         )
     except Exception as exc:
         logging.warning("Не смог уведомить клиента %s: %s", ticket["user_id"], exc)
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "admin",
         f"✅ Обращение #{ticket['id']} закрыто.\nКлиент уведомлён.",
         kb_admin_panel(),
     )
@@ -1677,10 +1710,11 @@ async def cb_admin_clients(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     users = await db.list_users(20)
     if not users:
-        await safe_edit(callback.message, "👥 Клиентов пока нет.", kb_admin_panel())
+        await show_screen(callback, "admin", "👥 Клиентов пока нет.", kb_admin_panel())
     else:
-        await safe_edit(
-            callback.message,
+        await show_screen(
+            callback,
+            "admin",
             "👥 Последние клиенты\nВыбери клиента:",
             kb_admin_clients(users),
         )
@@ -1697,8 +1731,9 @@ async def cb_admin_client(callback: CallbackQuery) -> None:
         return
     orders_count = await db.scalar("SELECT COUNT(*) FROM orders WHERE user_id = ?", (user["id"],))
     username = f"@{user['username']}" if user["username"] else "—"
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "admin",
         f"👤 Клиент\n"
         f"Имя: {user['full_name'] or 'Без имени'}\n"
         f"Username: {username}\n"
@@ -1731,8 +1766,9 @@ async def cb_admin_cmsg(callback: CallbackQuery, state: FSMContext) -> None:
 async def show_admin_products(callback: CallbackQuery, page: int = 0) -> None:
     total = await db.count_products()
     if not total:
-        await safe_edit(
-            callback.message,
+        await show_screen(
+            callback,
+            "admin",
             "📦 Товаров пока нет.\nДобавь командой /addproduct.",
             kb_admin_panel(),
         )
@@ -1742,8 +1778,9 @@ async def show_admin_products(callback: CallbackQuery, page: int = 0) -> None:
     products = await db.list_products(
         limit=ADMIN_PRODUCTS_PAGE_SIZE, offset=page * ADMIN_PRODUCTS_PAGE_SIZE
     )
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "admin",
         f"📦 Товары\nСтраница {page + 1} из {pages} · всего {total}\nВыбери товар:",
         kb_admin_products(products, page, pages),
     )
@@ -1774,7 +1811,7 @@ async def cb_admin_product(callback: CallbackQuery) -> None:
     if product is None:
         await callback.answer("Товар не найден.", show_alert=True)
         return
-    await safe_edit(callback.message, product_admin_text(product), kb_admin_product(product))
+    await show_screen(callback, "admin", product_admin_text(product), kb_admin_product(product))
     await callback.answer()
 
 
@@ -1806,8 +1843,9 @@ async def cb_admin_delprod(callback: CallbackQuery) -> None:
         await callback.answer("Товар не найден.", show_alert=True)
         return
     await db.deactivate_product(product["id"])
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "admin",
         f"🗑 Товар #{product['id']} · {product['title']} удалён из каталога.\n"
         "Старые заказы сохранятся.",
         kb_admin_panel(),
@@ -1820,8 +1858,9 @@ async def cb_admin_stats(callback: CallbackQuery) -> None:
     if not await admin_callback(callback):
         return
     stats = await db.stats()
-    await safe_edit(
-        callback.message,
+    await show_screen(
+        callback,
+        "admin",
         f"📊 Статистика {config.SHOP_NAME}\n\n"
         f"👥 Клиентов: {stats['users']}\n"
         f"🧾 Заказов: {stats['orders']} (выдано {stats['delivered']})\n"
@@ -1843,10 +1882,12 @@ async def fallback_text(message: Message) -> None:
     await db.upsert_user(user.id, user.username, user.full_name or "")
 
     if is_admin(user.id):
-        await message.answer(
+        await show_screen(
+            message,
+            "admin",
             "🛠 Панель администратора: /admin\n"
             "Команды: /addproduct, /addstock <ID>, /stock, /chat <ID>",
-            reply_markup=kb_main(True),
+            kb_main(True),
         )
         return
 
@@ -1856,7 +1897,7 @@ async def fallback_text(message: Message) -> None:
         await message.answer("✅ Передал в поддержку.")
         return
 
-    await message.answer("Выбери действие в меню 👇", reply_markup=kb_main(False))
+    await show_screen(message, "main", "Выбери действие в меню 👇", kb_main(False))
 
 
 @dp.errors()
