@@ -9,6 +9,7 @@ from typing import Optional
 import aiosqlite
 
 from countries_data import COUNTRIES
+from pricing import MIN_PRICE, PRICING_VERSION, retail_price
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -134,7 +135,7 @@ class Database:
                         f"Виртуальный номер · {name}",
                         f"Страна: {name} ({phone}). Одноразовый номер для приёма SMS. "
                         "Данные приходят в этот чат после выдачи заказа.",
-                        price,
+                        retail_price(price),
                     ),
                 )
 
@@ -142,37 +143,36 @@ class Database:
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('countries', '1')"
         )
 
-    async def apply_price_multiplier(self, multiplier: float) -> None:
-        """Держит розничные цены каталога на заданной наценке.
+    async def apply_retail_prices(self) -> None:
+        """Выставляет розничные цены стран по правилам pricing.py.
 
-        При первом запуске с наценкой цены товаров умножаются, коэффициент
-        сохраняется в meta. При следующем запуске с тем же коэффициентом
-        ничего не меняется, поэтому рестарты не удваивают цены повторно.
-        Если коэффициент в PRICE_MULTIPLIER изменить, цены пересчитаются
-        пропорционально старому значению.
+        Цена всегда считается от закупочной цены simdrop из countries_data.py,
+        а версия прайса хранится в meta. Повторный запуск с той же версией
+        ничего не меняет, поэтому рестарты не накручивают цены.
+        Товары, добавленные админом вручную, не трогаем.
         """
-        if multiplier <= 0:
+        stored = await self.scalar("SELECT value FROM meta WHERE key = 'pricing_version'")
+        if stored == PRICING_VERSION:
             return
-        stored = await self.scalar("SELECT value FROM meta WHERE key = 'price_multiplier'")
-        try:
-            previous = float(stored) if stored else 1.0
-        except ValueError:
-            previous = 1.0
-        if previous <= 0:
-            previous = 1.0
-        if abs(previous - multiplier) < 1e-4:
-            return
-        ratio = multiplier / previous
+
+        updated = 0
+        for _emoji, name, _phone, wholesale, _count in COUNTRIES:
+            cursor = await self.execute(
+                "UPDATE products SET price = ? WHERE title = ?",
+                (retail_price(wholesale), f"Виртуальный номер · {name}"),
+            )
+            updated += cursor.rowcount or 0
+
         await self.execute(
-            "UPDATE products SET price = MAX(1, CAST(ROUND(price * ?) AS INTEGER))",
-            (ratio,),
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('pricing_version', ?)",
+            (PRICING_VERSION,),
         )
-        await self.execute(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES ('price_multiplier', ?)",
-            (str(multiplier),),
-        )
+        await self.execute("DELETE FROM meta WHERE key = 'price_multiplier'")
         logging.info(
-            "Цены каталога пересчитаны: наценка ×%s (было ×%s)", multiplier, previous
+            "Розничные цены обновлены: %s товаров, минимум %s ₽ (прайс %s)",
+            updated,
+            MIN_PRICE,
+            PRICING_VERSION,
         )
 
     async def execute(self, sql: str, params: tuple = ()) -> aiosqlite.Cursor:

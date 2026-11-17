@@ -73,7 +73,7 @@ async def show_screen(
     """
     is_callback = isinstance(event, CallbackQuery)
     message = event.message if is_callback else event
-    if message is None:
+    if not isinstance(message, Message):
         return
 
     media = banner_media(key) if len(text) <= CAPTION_LIMIT else None
@@ -92,6 +92,8 @@ async def show_screen(
             try:
                 await message.edit_text(text, reply_markup=reply_markup)
             except TelegramBadRequest as exc:
+                if "message is not modified" in str(exc):
+                    return
                 logging.debug("Не смог отредактировать экран: %s", exc)
                 await _send_text(message, text, reply_markup)
         else:
@@ -104,7 +106,8 @@ async def show_screen(
                 InputMediaPhoto(media=media, caption=text),
                 reply_markup=reply_markup,
             )
-            _remember(key, sent if isinstance(sent, Message) else message)
+            if isinstance(sent, Message):
+                _remember(key, sent)
             return
         except TelegramBadRequest as exc:
             if "message is not modified" in str(exc):
