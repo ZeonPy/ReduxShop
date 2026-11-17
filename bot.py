@@ -39,7 +39,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import config
-from banners import show_screen
+from banners import send_banner, show_screen
 from db import Database
 
 logging.basicConfig(
@@ -172,22 +172,13 @@ def cb_id(data: str) -> int:
     return int(data.split(":")[-1])
 
 
-async def safe_edit(message: Message | None, text: str, reply_markup=None, parse_mode=None) -> None:
-    if message is None:
-        return
-    try:
-        await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-    except TelegramBadRequest as exc:
-        logging.debug("Не смог отредактировать сообщение: %s", exc)
-
-
-async def notify_admins(text: str, reply_markup=None) -> None:
+async def notify_admins(text: str, reply_markup=None, key: str = "admin") -> None:
     if not config.ADMIN_IDS:
         logging.warning("ADMIN_IDS пуст: уведомление не отправлено. %s", text)
         return
     for admin_id in config.ADMIN_IDS:
         try:
-            await bot.send_message(admin_id, text, reply_markup=reply_markup)
+            await send_banner(bot, admin_id, key, text, reply_markup=reply_markup)
         except Exception as exc:
             logging.warning("Не смог написать админу %s: %s", admin_id, exc)
 
@@ -202,7 +193,7 @@ async def admin_callback(callback: CallbackQuery) -> bool:
 async def require_admin(message: Message) -> bool:
     if message.from_user and is_admin(message.from_user.id):
         return True
-    await message.answer("⛔ Эта команда доступна только администраторам.")
+    await show_screen(message, "main", "⛔ Эта команда доступна только администраторам.")
     return False
 
 
@@ -653,7 +644,7 @@ async def cmd_catalog(message: Message, state: FSMContext) -> None:
     await state.clear()
     total = await db.count_categories()
     if not total:
-        await message.answer("🛍 Каталог пока пуст. Загляни позже.")
+        await show_screen(message, "catalog", "🛍 Каталог пока пуст. Загляни позже.")
         return
     pages = max(1, (total + CATALOG_PAGE_SIZE - 1) // CATALOG_PAGE_SIZE)
     categories = await db.list_categories(CATALOG_PAGE_SIZE, 0)
@@ -667,8 +658,10 @@ async def cmd_catalog(message: Message, state: FSMContext) -> None:
 
 @dp.message(Command("id"))
 async def cmd_id(message: Message) -> None:
-    await message.answer(
-        f"Твой ID: {message.from_user.id}\nID чата: {message.chat.id}"
+    await show_screen(
+        message,
+        "about",
+        f"Твой ID: {message.from_user.id}\nID чата: {message.chat.id}",
     )
 
 
@@ -689,9 +682,11 @@ async def cmd_admin(message: Message, state: FSMContext) -> None:
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
     await state.clear()
     if is_admin(message.from_user.id):
-        await message.answer("Отменено. Панель: /admin", reply_markup=kb_admin_panel())
+        await show_screen(
+            message, "admin", "Отменено. Панель: /admin", kb_admin_panel()
+        )
     else:
-        await message.answer("Отменено.", reply_markup=kb_main(False))
+        await show_screen(message, "main", "Отменено.", kb_main(False))
 
 
 # ---------------------------------------------------------------------------
@@ -818,6 +813,7 @@ async def cb_buy(callback: CallbackQuery, state: FSMContext) -> None:
             f"Товар: {order['product_title']}\n"
             f"Сумма: {money(order['price'])}",
             reply_markup=kb_order_notify(order_id),
+            key="orders",
         )
 
     order = await db.get_order(order_id)
@@ -861,11 +857,14 @@ async def cb_paid(callback: CallbackQuery) -> None:
         f"Сумма: {money(order['price'])}\n\n"
         "Проверь платёж и выдай товар.",
         reply_markup=kb_order_notify(order_id),
+        key="payment",
     )
     await callback.answer("Принято, проверяем оплату.")
-    await callback.message.answer(
+    await show_screen(
+        callback,
+        "payment",
         "✅ Отметил, что ты оплатил. Оператор проверит платёж и выдаст товар — "
-        "данные придут сюда."
+        "данные придут сюда.",
     )
 
 
@@ -938,16 +937,20 @@ async def on_successful_payment(message: Message) -> None:
     order_id = parse_order_payload(payment.invoice_payload)
     if order_id is None:
         logging.warning("Оплата без привязки к заказу: %s", payment.invoice_payload)
-        await message.answer(
-            "✅ Оплата получена, но заказ не найден. Напиши в поддержку — разберёмся."
+        await show_screen(
+            message,
+            "payment",
+            "✅ Оплата получена, но заказ не найден. Напиши в поддержку — разберёмся.",
         )
         return
 
     order = await db.get_order(order_id)
     if order is None:
         logging.warning("Оплата по несуществующему заказу %s", order_id)
-        await message.answer(
-            "✅ Оплата получена, но заказ не найден. Напиши в поддержку — разберёмся."
+        await show_screen(
+            message,
+            "payment",
+            "✅ Оплата получена, но заказ не найден. Напиши в поддержку — разберёмся.",
         )
         return
     if order["user_id"] != message.from_user.id:
@@ -958,7 +961,9 @@ async def on_successful_payment(message: Message) -> None:
         )
         return
     if order["status"] == "delivered":
-        await message.answer("✅ Оплата по этому заказу уже обработана, товар выдан.")
+        await show_screen(
+            message, "orders", "✅ Оплата по этому заказу уже обработана, товар выдан."
+        )
         return
     if order["status"] == "cancelled":
         await notify_admins(
@@ -967,9 +972,12 @@ async def on_successful_payment(message: Message) -> None:
             f"Сумма: {money(order['price'])}\n\n"
             "Нужно вернуть деньги или выдать товар вручную.",
             reply_markup=kb_order_notify(order_id),
+            key="payment",
         )
-        await message.answer(
-            "✅ Оплата получена, но заказ был отменён. Оператор свяжется с тобой."
+        await show_screen(
+            message,
+            "payment",
+            "✅ Оплата получена, но заказ был отменён. Оператор свяжется с тобой.",
         )
         return
 
@@ -997,7 +1005,8 @@ async def on_successful_payment(message: Message) -> None:
             f"Клиент: {display_order_user(order)}\n"
             f"Товар: {order['product_title']}\n"
             f"Сумма: {money(order['price'])}\n\n"
-            "✅ Товар выдан автоматически."
+            "✅ Товар выдан автоматически.",
+            key="orders",
         )
     else:
         await notify_admins(
@@ -1008,10 +1017,13 @@ async def on_successful_payment(message: Message) -> None:
             f"Причина: {detail}\n\n"
             "Выдай товар вручную.",
             reply_markup=kb_order_notify(order_id),
+            key="orders",
         )
-        await message.answer(
+        await show_screen(
+            message,
+            "orders",
             "✅ Оплата получена! Товара не оказалось в наличии — оператор выдаст его "
-            "вручную или свяжется с тобой."
+            "вручную или свяжется с тобой.",
         )
 
 
@@ -1099,7 +1111,9 @@ async def cb_ticket_user_close(callback: CallbackQuery, state: FSMContext) -> No
         return
     await state.clear()
     await db.close_ticket(ticket["id"])
-    await notify_admins(f"✅ Клиент закрыл обращение #{ticket['id']}")
+    await notify_admins(
+        f"✅ Клиент закрыл обращение #{ticket['id']}", key="support"
+    )
     await show_screen(
         callback,
         "support",
@@ -1123,6 +1137,7 @@ async def relay_user_message(message: Message, ticket_id: int) -> None:
         f"{f' (@{user.username})' if user.username else ''} · ID {user.id}\n\n"
         f"{message.text}",
         reply_markup=kb_ticket_notify(ticket_id),
+        key="support",
     )
 
 
@@ -1132,16 +1147,18 @@ async def support_message(message: Message, state: FSMContext) -> None:
     await db.upsert_user(user.id, user.username, user.full_name or "")
     ticket = await db.get_or_create_open_ticket(user.id)
     await relay_user_message(message, ticket["id"])
-    await message.answer(
+    await show_screen(
+        message,
+        "support",
         "✅ Передал оператору. Ответ придёт сюда.\n"
-        "Можешь продолжать писать — сообщения добавятся в это обращение."
+        "Можешь продолжать писать — сообщения добавятся в это обращение.",
     )
     await state.clear()
 
 
 @dp.message(SupportState.message)
 async def support_non_text(message: Message) -> None:
-    await message.answer("Отправь сообщение текстом, пожалуйста.")
+    await show_screen(message, "support", "Отправь сообщение текстом, пожалуйста.")
 
 
 # ---------------------------------------------------------------------------
@@ -1163,7 +1180,11 @@ async def cmd_addproduct(message: Message, state: FSMContext) -> None:
         return
     total = await db.count_categories()
     if not total:
-        await message.answer("Сначала создай категорию — каталог пуст. Обратись к разработчику.")
+        await show_screen(
+            message,
+            "admin",
+            "Сначала создай категорию — каталог пуст. Обратись к разработчику.",
+        )
         return
     pages = max(1, (total + ADMIN_CATEGORIES_PAGE_SIZE - 1) // ADMIN_CATEGORIES_PAGE_SIZE)
     categories = await db.list_categories(ADMIN_CATEGORIES_PAGE_SIZE, 0)
@@ -1231,15 +1252,21 @@ async def addproduct_title(message: Message, state: FSMContext) -> None:
         return
     title = message.text.strip()
     if len(title) < 2 or len(title) > 100:
-        await message.answer("Название должно быть от 2 до 100 символов. Попробуй ещё раз.")
+        await show_screen(
+            message,
+            "admin",
+            "Название должно быть от 2 до 100 символов. Попробуй ещё раз.",
+        )
         return
     await state.update_data(title=title)
     await state.set_state(AddProduct.price)
     data = await state.get_data()
     category_title = data.get("category_title", "—")
-    await message.answer(
+    await show_screen(
+        message,
+        "admin",
         f"Категория: {category_title}\n"
-        f"Укажи цену в {config.CURRENCY} (только число):"
+        f"Укажи цену в {config.CURRENCY} (только число):",
     )
 
 
@@ -1250,12 +1277,14 @@ async def addproduct_price(message: Message, state: FSMContext) -> None:
         return
     digits = re.sub(r"[^\d]", "", message.text)
     if not digits or int(digits) <= 0 or int(digits) > 10_000_000:
-        await message.answer("Нужна цена числом больше нуля. Например: 149")
+        await show_screen(message, "admin", "Нужна цена числом больше нуля. Например: 149")
         return
     await state.update_data(price=int(digits))
     await state.set_state(AddProduct.description)
-    await message.answer(
-        "Отправь описание товара (или «-», чтобы оставить пустым):"
+    await show_screen(
+        message,
+        "admin",
+        "Отправь описание товара (или «-», чтобы оставить пустым):",
     )
 
 
@@ -1266,7 +1295,9 @@ async def addproduct_description(message: Message, state: FSMContext) -> None:
         return
     description = "" if message.text.strip() == "-" else message.text.strip()
     if len(description) > 1000:
-        await message.answer("Описание слишком длинное (максимум 1000 символов).")
+        await show_screen(
+            message, "admin", "Описание слишком длинное (максимум 1000 символов)."
+        )
         return
     data = await state.get_data()
     product_id = await db.add_product(
@@ -1276,11 +1307,13 @@ async def addproduct_description(message: Message, state: FSMContext) -> None:
         category_id=data.get("category_id"),
     )
     await state.clear()
-    await message.answer(
+    await show_screen(
+        message,
+        "admin",
         f"✅ Товар #{product_id} добавлен.\n"
         f"Категория: {data.get('category_title', '—')}\n"
         f"Теперь добавь сток: /addstock {product_id}\n"
-        "Или через /admin → 📦 Товары."
+        "Или через /admin → 📦 Товары.",
     )
 
 
@@ -1296,24 +1329,28 @@ async def cmd_addstock(message: Message, command: CommandObject, state: FSMConte
             f"#{product['id']} · {product['title']} · {product['stock']} шт."
             for product in products
         )
-        await message.answer(
+        await show_screen(
+            message,
+            "admin",
             "Использование: /addstock <ID товара>\n\n"
             f"Товары (первые 20 из {total}, полностью — /admin → 📦 Товары):\n"
-            f"{lines or 'пока нет товаров'}"
+            f"{lines or 'пока нет товаров'}",
         )
         return
     product_id = int(parts[0])
     product = await db.get_product(product_id)
     if product is None:
-        await message.answer("Товар с таким ID не найден.")
+        await show_screen(message, "admin", "Товар с таким ID не найден.")
         return
     await state.set_state(AddStock.content)
     await state.update_data(product_id=product_id)
-    await message.answer(
+    await show_screen(
+        message,
+        "admin",
         f"📦 Товар #{product_id} · {product['title']}\n\n"
         "Отправь позиции для стока: каждая строка — отдельный товар.\n"
         "Например:\n+1 555 000-00-01 | код 1234\n+1 555 000-00-02 | код 5678\n\n"
-        "/cancel — отмена."
+        "/cancel — отмена.",
     )
 
 
@@ -1324,21 +1361,25 @@ async def addstock_content(message: Message, state: FSMContext) -> None:
         return
     lines = [line.strip() for line in message.text.splitlines() if line.strip()]
     if not lines:
-        await message.answer("Нужна хотя бы одна строка. Попробуй ещё раз.")
+        await show_screen(message, "admin", "Нужна хотя бы одна строка. Попробуй ещё раз.")
         return
     data = await state.get_data()
     product_id = data.get("product_id")
     product = await db.get_product(product_id) if product_id else None
     if product is None:
         await state.clear()
-        await message.answer("Товар не найден. Начни заново: /addstock <ID>.")
+        await show_screen(
+            message, "admin", "Товар не найден. Начни заново: /addstock <ID>."
+        )
         return
     count = await db.add_stock(product_id, lines)
     await state.clear()
-    await message.answer(
+    await show_screen(
+        message,
+        "admin",
         f"✅ Добавлено позиций: {count}.\n"
         f"Теперь в наличии: {await db.stock_count(product_id)} шт.\n"
-        f"Товар: #{product_id} · {product['title']}"
+        f"Товар: #{product_id} · {product['title']}",
     )
 
 
@@ -1349,7 +1390,7 @@ async def cmd_stock(message: Message) -> None:
     total = await db.count_products()
     products = await db.list_products(limit=30)
     if not products:
-        await message.answer("Товаров пока нет. Добавь: /addproduct")
+        await show_screen(message, "admin", "Товаров пока нет. Добавь: /addproduct")
         return
     lines = [
         f"#{product['id']} · {product['title']} · {money(product['price'])} · "
@@ -1369,17 +1410,19 @@ async def cmd_delproduct(message: Message, command: CommandObject) -> None:
         return
     args = (command.args or "").strip()
     if not args.isdigit():
-        await message.answer("Использование: /delproduct <ID товара>")
+        await show_screen(message, "admin", "Использование: /delproduct <ID товара>")
         return
     product_id = int(args)
     product = await db.get_product(product_id)
     if product is None or not product["active"]:
-        await message.answer("Активный товар с таким ID не найден.")
+        await show_screen(message, "admin", "Активный товар с таким ID не найден.")
         return
     await db.deactivate_product(product_id)
-    await message.answer(
+    await show_screen(
+        message,
+        "admin",
         f"🗑 Товар #{product_id} · {product['title']} удалён из каталога.\n"
-        "Старые заказы сохранятся."
+        "Старые заказы сохранятся.",
     )
 
 
@@ -1389,21 +1432,25 @@ async def cmd_chat(message: Message, command: CommandObject, state: FSMContext) 
         return
     args = (command.args or "").strip()
     if not args.isdigit():
-        await message.answer("Использование: /chat <ID клиента>")
+        await show_screen(message, "admin", "Использование: /chat <ID клиента>")
         return
     user_id = int(args)
     user = await db.get_user(user_id)
     if user is None:
-        await message.answer(
-            "Клиент не найден. Он должен хотя бы раз нажать /start в боте."
+        await show_screen(
+            message,
+            "admin",
+            "Клиент не найден. Он должен хотя бы раз нажать /start в боте.",
         )
         return
     await state.set_state(ClientMessage.text)
     await state.update_data(user_id=user_id)
-    await message.answer(
+    await show_screen(
+        message,
+        "admin",
         f"✉️ Чат с клиентом {display_user(user)}\n\n"
-        "Отправь сообщение — я передам его клиенту от имени магазина.\n"
-        "/cancel — выйти."
+        "Отправить сообщение — я передам его клиенту от имени магазина.\n"
+        "/cancel — выйти.",
     )
 
 
@@ -1422,25 +1469,35 @@ async def admin_reply_text(message: Message, state: FSMContext) -> None:
     ticket = await db.get_ticket(ticket_id) if ticket_id else None
     if ticket is None:
         await state.clear()
-        await message.answer("Обращение не найдено.")
+        await show_screen(message, "admin", "Обращение не найдено.")
         return
     if ticket["status"] != "open":
         await state.clear()
-        await message.answer("Это обращение уже закрыто. Ответ не отправлен.")
+        await show_screen(
+            message, "admin", "Это обращение уже закрыто. Ответ не отправлен."
+        )
         return
     await db.add_ticket_message(ticket_id, "admin", message.text)
     try:
-        await bot.send_message(
+        await send_banner(
+            bot,
             ticket["user_id"],
+            "support",
             f"💬 Ответ поддержки {config.SHOP_NAME}:\n\n{message.text}",
         )
     except Exception as exc:
         logging.warning("Не смог отправить ответ клиенту %s: %s", ticket["user_id"], exc)
         await state.clear()
-        await message.answer("Сообщение сохранено, но доставить клиенту не удалось.")
+        await show_screen(
+            message,
+            "admin",
+            "Сообщение сохранено, но доставить клиенту не удалось.",
+        )
         return
     await state.clear()
-    await message.answer(f"✅ Ответ отправлен клиенту по обращению #{ticket_id}.")
+    await show_screen(
+        message, "admin", f"✅ Ответ отправлен клиенту по обращению #{ticket_id}."
+    )
 
 
 @dp.message(ClientMessage.text, F.text)
@@ -1452,19 +1509,27 @@ async def client_message_text(message: Message, state: FSMContext) -> None:
     user_id = data.get("user_id")
     if not user_id:
         await state.clear()
-        await message.answer("Клиент не выбран. Используй /chat <ID>.")
+        await show_screen(message, "admin", "Клиент не выбран. Используй /chat <ID>.")
         return
     try:
-        await bot.send_message(
+        await send_banner(
+            bot,
             user_id,
+            "support",
             f"✉️ Сообщение от {config.SHOP_NAME}:\n\n{message.text}",
         )
     except Exception as exc:
         logging.warning("Не смог отправить сообщение клиенту %s: %s", user_id, exc)
-        await message.answer("Не удалось доставить: клиент не запускал бота или заблокировал его.")
+        await show_screen(
+            message,
+            "admin",
+            "Не удалось доставить: клиент не запускал бота или заблокировал его.",
+        )
         return
     await state.clear()
-    await message.answer(f"✅ Сообщение отправлено клиенту (ID {user_id}).")
+    await show_screen(
+        message, "admin", f"✅ Сообщение отправлено клиенту (ID {user_id})."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1530,8 +1595,10 @@ async def perform_delivery(order_id: int) -> tuple[bool, str]:
         return False, "Нет свободного товара. Добавь сток: /addstock <ID>."
 
     try:
-        await bot.send_message(
+        await send_banner(
+            bot,
             new_order["user_id"],
+            "orders",
             f"🎁 Заказ #{new_order['id']} выдан!\n\n"
             f"Товар: {html.escape(new_order['product_title'])}\n\n"
             f"<pre>{html.escape(item['content'])}</pre>",
@@ -1596,8 +1663,10 @@ async def cb_admin_cancel(callback: CallbackQuery) -> None:
         return
     await db.set_order_status(order_id, "cancelled")
     try:
-        await bot.send_message(
+        await send_banner(
+            bot,
             order["user_id"],
+            "orders",
             f"❌ Заказ #{order_id} отменён.\n"
             "Если это ошибка — напиши в поддержку через бота.",
         )
@@ -1666,10 +1735,13 @@ async def cb_admin_treply(callback: CallbackQuery, state: FSMContext) -> None:
         return
     await state.set_state(AdminReply.text)
     await state.update_data(ticket_id=ticket["id"])
-    await callback.message.answer(
+    await show_screen(
+        callback,
+        "admin",
         f"✍️ Ответ клиенту по обращению #{ticket['id']}\n"
         f"Клиент: {display_ticket_user(ticket)}\n\n"
-        "Напиши текст ответа одним сообщением. /cancel — отмена."
+        "Напиши текст ответа одним сообщением. /cancel — отмена.",
+        kb_admin_panel(),
     )
     await callback.answer()
 
@@ -1687,8 +1759,10 @@ async def cb_admin_tclose(callback: CallbackQuery) -> None:
         return
     await db.close_ticket(ticket["id"])
     try:
-        await bot.send_message(
+        await send_banner(
+            bot,
             ticket["user_id"],
+            "support",
             f"✅ Обращение #{ticket['id']} закрыто оператором.\n"
             "Если остались вопросы — снова нажми «🆘 Поддержка».",
         )
@@ -1756,9 +1830,12 @@ async def cb_admin_cmsg(callback: CallbackQuery, state: FSMContext) -> None:
         return
     await state.set_state(ClientMessage.text)
     await state.update_data(user_id=user_id)
-    await callback.message.answer(
+    await show_screen(
+        callback,
+        "admin",
         f"✉️ Сообщение клиенту {display_user(user)}\n\n"
-        "Напиши текст — я передам его от имени магазина. /cancel — отмена."
+        "Напиши текст — я передам его от имени магазина. /cancel — отмена.",
+        kb_admin_panel(),
     )
     await callback.answer()
 
@@ -1825,11 +1902,14 @@ async def cb_admin_addstock(callback: CallbackQuery, state: FSMContext) -> None:
         return
     await state.set_state(AddStock.content)
     await state.update_data(product_id=product["id"])
-    await callback.message.answer(
+    await show_screen(
+        callback,
+        "admin",
         f"📦 Сток для товара #{product['id']} · {product['title']}\n\n"
         "Отправь позиции: каждая строка — отдельный товар.\n"
         "Например:\n+1 555 000-00-01 | код 1234\n+1 555 000-00-02 | код 5678\n\n"
-        "/cancel — отмена."
+        "/cancel — отмена.",
+        kb_admin_panel(),
     )
     await callback.answer()
 
@@ -1894,7 +1974,7 @@ async def fallback_text(message: Message) -> None:
     ticket = await db.get_open_ticket(user.id)
     if ticket:
         await relay_user_message(message, ticket["id"])
-        await message.answer("✅ Передал в поддержку.")
+        await show_screen(message, "support", "✅ Передал в поддержку.")
         return
 
     await show_screen(message, "main", "Выбери действие в меню 👇", kb_main(False))
