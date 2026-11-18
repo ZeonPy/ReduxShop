@@ -88,6 +88,13 @@ class KeyboardsTest(unittest.TestCase):
         self.assertIn("paid:3", callbacks(keyboards.kb_payment(3, False)))
         self.assertIn("pay:3", callbacks(keyboards.kb_payment(3, True)))
 
+    def test_payment_url_adds_sbp_button(self) -> None:
+        markup = keyboards.kb_payment(3, False, payment_url="https://pay.example/sbp")
+        buttons = [b for row in markup.inline_keyboard for b in row]
+        sbp = [b for b in buttons if b.text == "💳 Оплатить по СБП"]
+        self.assertEqual(len(sbp), 1)
+        self.assertEqual(sbp[0].url, "https://pay.example/sbp")
+
     def test_admin_panel_has_settings_and_banners(self) -> None:
         data = callbacks(keyboards.kb_admin_panel())
         self.assertIn("adm:settings", data)

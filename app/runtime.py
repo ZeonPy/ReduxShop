@@ -34,6 +34,7 @@ class RuntimeConfig:
     smsfast_timeout: int = 900
     clean_chat: bool = True
     payment_card: str = ""
+    payment_url: str = ""
 
     @classmethod
     def from_settings(cls, base: Settings) -> "RuntimeConfig":
@@ -52,6 +53,7 @@ class RuntimeConfig:
             smsfast_timeout=base.smsfast_timeout,
             clean_chat=base.clean_chat,
             payment_card=base.payment_card,
+            payment_url=base.payment_url,
         )
 
     @property

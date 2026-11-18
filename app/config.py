@@ -85,6 +85,7 @@ class Settings:
     smsfast_timeout: int = 900
     clean_chat: bool = True
     payment_card: str = ""
+    payment_url: str = ""
     bot_token_source: str = "unknown"
 
     @property
@@ -190,5 +191,6 @@ def load_settings() -> Settings:
         smsfast_timeout=_env_int("SMSFAST_TIMEOUT", 900, minimum=60),
         clean_chat=_env_bool("CLEAN_CHAT", True),
         payment_card=os.getenv("PAYMENT_CARD", "").strip(),
+        payment_url=os.getenv("PAYMENT_URL", "").strip(),
         bot_token_source=token_source,
     )

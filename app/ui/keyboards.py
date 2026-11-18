@@ -100,12 +100,18 @@ def kb_product(
     return builder.as_markup()
 
 
-def kb_payment(order_id: int, auto_payment: bool) -> InlineKeyboardMarkup:
+def kb_payment(
+    order_id: int, auto_payment: bool, payment_url: str | None = None
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if auto_payment:
+        if payment_url:
+            builder.button(text="💳 Оплатить по СБП", url=payment_url)
         builder.button(text="💳 Оплатить", callback_data=f"pay:{order_id}")
     else:
         builder.button(text="✅ Я оплатил", callback_data=f"paid:{order_id}")
+        if payment_url:
+            builder.button(text="💳 Оплатить по СБП", url=payment_url)
     builder.button(text="⬅️ Каталог", callback_data="catalog")
     builder.button(text="🏠 Меню", callback_data="menu")
     builder.adjust(1)
@@ -364,6 +370,7 @@ def kb_admin_settings() -> InlineKeyboardMarkup:
     builder.button(text="🔗 Ссылка", callback_data="adm:set:shop_link")
     builder.button(text="💳 Реквизиты", callback_data="adm:set:payment_details")
     builder.button(text="💳 Карта", callback_data="adm:set:payment_card")
+    builder.button(text="💳 Ссылка СБП", callback_data="adm:set:payment_url")
     builder.button(text="💱 Валюта", callback_data="adm:set:currency")
     builder.button(text="💰 Мин. цена", callback_data="adm:set:min_price")
     builder.button(text="🎯 Порог дешёвых", callback_data="adm:set:cheap_limit")
@@ -378,7 +385,7 @@ def kb_admin_settings() -> InlineKeyboardMarkup:
     builder.button(text="📡 SMSFast", callback_data="adm:smsfast")
     builder.button(text="🔄 Пересчитать цены", callback_data="adm:reprice")
     builder.button(text="⬅️ Панель", callback_data="adm:panel")
-    builder.adjust(2, 2, 2, 2, 2, 2, 2)
+    builder.adjust(2, 2, 2, 2, 2, 2, 2, 1)
     return builder.as_markup()
 
 

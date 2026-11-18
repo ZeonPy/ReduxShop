@@ -22,6 +22,7 @@ TEXT_KEYS = {
     "shop_link": (8, 200),
     "payment_details": (2, 500),
     "payment_card": (0, 500),
+    "payment_url": (8, 300),
     "currency": (1, 8),
 }
 
@@ -46,6 +47,7 @@ SETTING_TITLES = {
     "shop_link": "Ссылка на канал",
     "payment_details": "Реквизиты оплаты",
     "payment_card": "💳 Карта для оплаты",
+    "payment_url": "💳 Ссылка оплаты СБП",
     "currency": "Валюта",
     "min_price": "Минимальная цена",
     "cheap_limit": "Порог дешёвых стран",
@@ -63,6 +65,10 @@ SETTING_HINTS = {
     "payment_details": "Телефон СБП или реквизиты. Можно несколько строк.",
     "payment_card": (
         "Карта для оплаты. Можно несколько строк. Оставь пустым — только СБП."
+    ),
+    "payment_url": (
+        "Ссылка для оплаты по СБП, например https://pay.example. "
+        "Оставь пустым — платёж через СБП/карту без кнопки."
     ),
     "currency": "Символ валюты, например ₽ или $",
     "min_price": "Целое число, не меньше 1. Например: 110",
@@ -236,6 +242,8 @@ class ConfigService:
             config.payment_details = value
         elif key == "payment_card":
             config.payment_card = value
+        elif key == "payment_url":
+            config.payment_url = value
         elif key == "currency":
             config.currency = value
         else:  # pragma: no cover - защита от опечатки в ключах

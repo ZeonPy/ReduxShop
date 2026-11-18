@@ -171,7 +171,9 @@ async def cb_buy(
                 callback,
                 "payment",
                 texts.invoice_text(ctx.settings, order),
-                keyboards.kb_payment(order.id, auto_payment=True),
+                keyboards.kb_payment(
+                    order.id, auto_payment=True, payment_url=ctx.settings.payment_url
+                ),
             )
             await callback.answer("Счёт на оплату отправлен 👇")
             return
@@ -185,6 +187,8 @@ async def cb_buy(
         callback,
         "payment",
         texts.payment_text(ctx.settings, order),
-        keyboards.kb_payment(order.id, auto_payment=False),
+        keyboards.kb_payment(
+            order.id, auto_payment=False, payment_url=ctx.settings.payment_url
+        ),
     )
     await callback.answer()
