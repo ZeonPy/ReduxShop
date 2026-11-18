@@ -1,4 +1,4 @@
-# Деплой ReduxShop 2.2.0 на Bothost
+# Деплой ReduxShop 2.2.1 на Bothost
 
 Бот готов к загрузке: точка входа `bot.py`, база — в `/app/data/shop.db`,
 токен — из переменной `BOT_TOKEN`. Архив: `reduxshop-bothost.zip`.
@@ -104,7 +104,7 @@ Bothost сам передаёт `BOT_TOKEN`. Остальное имеет зн�
 База данных: /app/data/shop.db
 SMSFast: подключён, сервис ot
 Прайс: ×3 до 50 ₽, ×2 дороже, минимум 110 ₽ (прайс nice-v3-min110-x3-x2-l50-d85)
-ReduxShop 2.2.0 запущен, товаров: 193
+ReduxShop 2.2.1 запущен, товаров: 193
 Run polling for bot @redux_agent
 ```
 
