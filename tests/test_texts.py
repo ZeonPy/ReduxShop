@@ -40,6 +40,12 @@ class TextsTest(unittest.TestCase):
         self.assertIn("Я оплатил", text)
         self.assertIn("149 ₽", text)
 
+    def test_payment_text_includes_card_when_set(self) -> None:
+        self.config.payment_card = "+79990008877"
+        text = texts.payment_text(self.config, self.order)
+        self.assertIn("+79631969503", text)
+        self.assertIn("+79990008877", text)
+
     def test_delivery_escapes_html(self) -> None:
         order = Order(
             id=1,

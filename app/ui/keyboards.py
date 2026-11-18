@@ -363,6 +363,7 @@ def kb_admin_settings() -> InlineKeyboardMarkup:
     builder.button(text="✏️ Название", callback_data="adm:set:shop_name")
     builder.button(text="🔗 Ссылка", callback_data="adm:set:shop_link")
     builder.button(text="💳 Реквизиты", callback_data="adm:set:payment_details")
+    builder.button(text="💳 Карта", callback_data="adm:set:payment_card")
     builder.button(text="💱 Валюта", callback_data="adm:set:currency")
     builder.button(text="💰 Мин. цена", callback_data="adm:set:min_price")
     builder.button(text="🎯 Порог дешёвых", callback_data="adm:set:cheap_limit")
@@ -377,7 +378,7 @@ def kb_admin_settings() -> InlineKeyboardMarkup:
     builder.button(text="📡 SMSFast", callback_data="adm:smsfast")
     builder.button(text="🔄 Пересчитать цены", callback_data="adm:reprice")
     builder.button(text="⬅️ Панель", callback_data="adm:panel")
-    builder.adjust(2, 2, 2, 2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 2, 2, 2, 2)
     return builder.as_markup()
 
 

@@ -33,6 +33,7 @@ class RuntimeConfig:
     smsfast_poll_interval: int = 5
     smsfast_timeout: int = 900
     clean_chat: bool = True
+    payment_card: str = ""
 
     @classmethod
     def from_settings(cls, base: Settings) -> "RuntimeConfig":
@@ -50,7 +51,17 @@ class RuntimeConfig:
             smsfast_poll_interval=base.smsfast_poll_interval,
             smsfast_timeout=base.smsfast_timeout,
             clean_chat=base.clean_chat,
+            payment_card=base.payment_card,
         )
+
+    @property
+    def public_payment_details(self) -> str:
+        sbp = self.payment_details.strip()
+        card = self.payment_card.strip()
+        lines = [sbp] if sbp else []
+        if card and card not in lines:
+            lines.append(card)
+        return "\n".join(lines) or self.payment_details.strip() or "+79631969503"
 
     # ------------------------------------------------------------------
     # Совместимый интерфейс с Settings
@@ -98,13 +109,6 @@ class RuntimeConfig:
 
     def is_admin(self, user_id: int | None) -> bool:
         return self.base.is_admin(user_id)
-
-    @property
-    def public_payment_details(self) -> str:
-        details = self.payment_details.strip()
-        if not details or "УКАЖИ" in details.upper():
-            return "Реквизиты уточни в поддержке — нажми «🆘 Поддержка»."
-        return details
 
     @property
     def pricing_signature(self) -> str:

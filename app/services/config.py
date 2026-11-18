@@ -21,6 +21,7 @@ TEXT_KEYS = {
     "shop_name": (2, 64),
     "shop_link": (8, 200),
     "payment_details": (2, 500),
+    "payment_card": (0, 500),
     "currency": (1, 8),
 }
 
@@ -44,6 +45,7 @@ SETTING_TITLES = {
     "shop_name": "Название магазина",
     "shop_link": "Ссылка на канал",
     "payment_details": "Реквизиты оплаты",
+    "payment_card": "💳 Карта для оплаты",
     "currency": "Валюта",
     "min_price": "Минимальная цена",
     "cheap_limit": "Порог дешёвых стран",
@@ -59,6 +61,9 @@ SETTING_HINTS = {
     "shop_name": "2–64 символа. Например: ReduxShop",
     "shop_link": "Ссылка вида https://t.me/reduxstore",
     "payment_details": "Телефон СБП или реквизиты. Можно несколько строк.",
+    "payment_card": (
+        "Карта для оплаты. Можно несколько строк. Оставь пустым — только СБП."
+    ),
     "currency": "Символ валюты, например ₽ или $",
     "min_price": "Целое число, не меньше 1. Например: 110",
     "cheap_limit": "Закупка до этой суммы идёт с первой наценкой",
@@ -229,6 +234,8 @@ class ConfigService:
             config.shop_link = value
         elif key == "payment_details":
             config.payment_details = value
+        elif key == "payment_card":
+            config.payment_card = value
         elif key == "currency":
             config.currency = value
         else:  # pragma: no cover - защита от опечатки в ключах

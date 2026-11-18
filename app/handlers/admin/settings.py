@@ -29,6 +29,8 @@ def _current_value(ctx: AppContext, key: str) -> str:
         return settings.shop_link
     if key == "payment_details":
         return settings.payment_details
+    if key == "payment_card":
+        return settings.payment_card
     if key == "currency":
         return settings.currency
     if key == "min_price":

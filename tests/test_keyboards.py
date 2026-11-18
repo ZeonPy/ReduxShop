@@ -107,6 +107,7 @@ class KeyboardsTest(unittest.TestCase):
             "adm:reprice",
             "adm:smsfast",
             "adm:banners",
+            "adm:set:payment_card",
         ):
             self.assertIn(callback, data)
 

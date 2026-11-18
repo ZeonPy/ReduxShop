@@ -84,6 +84,7 @@ class Settings:
     smsfast_poll_interval: int = 5
     smsfast_timeout: int = 900
     clean_chat: bool = True
+    payment_card: str = ""
     bot_token_source: str = "unknown"
 
     @property
@@ -109,10 +110,12 @@ class Settings:
 
     @property
     def public_payment_details(self) -> str:
-        details = self.payment_details.strip()
-        if not details or "УКАЖИ" in details.upper():
-            return "Реквизиты уточни в поддержке — нажми «🆘 Поддержка»."
-        return details
+        sbp = self.payment_details.strip()
+        card = self.payment_card.strip()
+        lines = [sbp] if sbp else []
+        if card and card not in lines:
+            lines.append(card)
+        return "\n".join(lines) or self.payment_details.strip() or "+79631969503"
 
     def is_admin(self, user_id: int | None) -> bool:
         return user_id in self.admin_ids
@@ -186,5 +189,6 @@ def load_settings() -> Settings:
         smsfast_poll_interval=_env_int("SMSFAST_POLL_INTERVAL", 5),
         smsfast_timeout=_env_int("SMSFAST_TIMEOUT", 900, minimum=60),
         clean_chat=_env_bool("CLEAN_CHAT", True),
+        payment_card=os.getenv("PAYMENT_CARD", "").strip(),
         bot_token_source=token_source,
     )

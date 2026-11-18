@@ -32,6 +32,7 @@ class ConfigServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.config.pricing, PricingRules())
         self.assertTrue(self.config.banners_enabled)
         self.assertEqual(self.config.banner_file_ids, {})
+        self.assertEqual(self.config.payment_card, "")
 
     def test_bot_token_validation(self) -> None:
         make_settings().validate()
@@ -64,6 +65,12 @@ class ConfigServiceTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ConfigError):
             await self.service.update(self.config, "cheap_multiplier", "0")
         self.assertIsNone(await self.db.settings.get("shop_name"))
+
+    async def test_update_payment_card(self) -> None:
+        changed = await self.service.update(self.config, "payment_card", "+79990008877")
+        self.assertFalse(changed)
+        self.assertEqual(self.config.payment_card, "+79990008877")
+        self.assertEqual(await self.db.settings.get("payment_card"), "+79990008877")
 
     async def test_pricing_change_returns_flag(self) -> None:
         changed = await self.service.update(self.config, "min_price", "500")

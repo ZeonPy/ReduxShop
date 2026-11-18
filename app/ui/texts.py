@@ -55,7 +55,7 @@ def welcome_text(settings: RuntimeConfig) -> str:
         f"👋 Добро пожаловать в {settings.shop_name}!\n\n"
         f"Виртуальные номера для приёма SMS из {len(COUNTRIES)} стран.\n"
         "• 📲 данные приходят прямо в этот чат;\n"
-        "• 💳 оплата по СБП или счётом Telegram;\n"
+        "• 💳 оплата по СБП, карте или счётом Telegram;\n"
         "• 🕘 поддержка на связи каждый день.\n\n"
         "Выбери раздел ниже 👇"
     )
@@ -99,7 +99,7 @@ def about_text(settings: RuntimeConfig) -> str:
         "Мы продаём виртуальные номера для приёма SMS.\n"
         f"• {len(COUNTRIES)} стран на выбор;\n"
         "• выдача данных прямо в чат;\n"
-        "• оплата по СБП или счётом Telegram;\n"
+        "• оплата по СБП, карте или счётом Telegram;\n"
         "• помощь оператора, если что-то пошло не так.\n\n"
         f"Наш канал: {settings.shop_link}\n\n"
         "Вопросы по заказу — через «🆘 Поддержка»."
@@ -333,7 +333,7 @@ def settings_text(
     banners_custom: int,
     banner_total: int,
 ) -> str:
-    details = settings.payment_details.replace("\n", " · ")
+    details = settings.public_payment_details.replace("\n", " · ")
     if len(details) > 120:
         details = details[:117] + "…"
     rules = settings.pricing
