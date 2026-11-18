@@ -3,6 +3,12 @@
 Бот готов к загрузке: точка входа `bot.py`, база — в `/app/data/shop.db`,
 токен — из переменной `BOT_TOKEN`. Архив: `reduxshop-bothost.zip`.
 
+> ⚠️ **Не выбирай шаблон «aiogram».** Шаблон Bothost ставит aiogram 3.32 и
+> сразу проверяет `from aiogram.utils import executor` — это API aiogram 2.
+> Проверка всегда падает с `ImportError`, и образ не собирается.
+> Выбирай шаблон **Python**, а ещё лучше — деплой из Git (шаг 2).
+> Подробнее: [Ошибка aiogram.utils.executor](#ошибка-aiogramutilsexecutor).
+
 ## Что уже настроено
 
 - `bothost.json` — главный файл `bot.py`, Python 3.11.
@@ -20,35 +26,37 @@
 - `.env`, `shop.db`, `bot.log`, `tests/`, `scripts/` и `assets/avatars/`
   в архив не входят.
 
-## Шаг 1. Включи загрузку из архива
+## Шаг 1. Выбери способ деплоя
 
-1. Открой https://bothost.ru/profile.php
-2. В блоке **«Интерфейс»** включи **«Загрузка бота из архива»**.
-3. Сохрани настройки.
-
-Без этого переключателя кнопки загрузки архива не видно. Функция доступна
-на тарифах Базовый и Pro.
-
-## Шаг 2. Загрузи бота
+**Вариант А — из Git (рекомендую).** Репозиторий публичный, токен GitHub не нужен,
+обновления подтягиваются кнопкой «Обновить из Git».
 
 1. Открой https://bothost.ru/dashboard.php
-2. Нажми **«Загрузить из архива»**.
-3. Выбери:
+2. **«Добавить бота»** → вкладка/поле **Git URL**:
+   `https://github.com/ZeonPy/ReduxShop`
+3. Ветка: `main`.
+4. **Язык / шаблон**: `Python` (не `aiogram`).
+5. **Главный файл**: `bot.py` (или оставь пусто — сработает `bothost.json`).
+6. Токен бота — из `BOT_TOKEN=` в локальном `.env`.
+7. **«Дополнительные настройки»** → включи **«Использовать собственный Dockerfile»**.
+8. **«Создать»**, затем дождись статуса **Running**.
+
+**Вариант Б — из архива.** Нужны тариф Базовый/Pro и включённый переключатель
+в профиле: https://bothost.ru/profile.php → **«Интерфейс»** → **«Загрузка бота
+из архива»** → сохранить. Затем на дашборде **«Загрузить из архива»**:
 
 ```text
 C:\Users\7ims (Admin)\Documents\Youtube\reduxshop-bot\reduxshop-bothost.zip
 ```
 
-4. Укажи:
-   - **Название**: `ReduxShop`
-   - **Токен бота**: из строки `BOT_TOKEN=` в локальном `.env`
-   - **Язык / шаблон**: Python или aiogram
-   - **Главный файл**: `bot.py`
-5. Нажми **«Задеплоить»** и дождись окончания сборки.
+В мастере: название `ReduxShop`, токен бота, **Язык / шаблон — Python**,
+главный файл `bot.py`, в «Дополнительных настройках» — галочка
+**«Использовать собственный Dockerfile»**. Нажми **«Задеплоить»**.
 
 `bothost.json` уже содержит точку входа, поэтому главный файл можно не заполнять.
+Но шаблон `aiogram` выбирать нельзя — см. раздел про ошибку ниже.
 
-## Шаг 3. Переменные окружения
+## Шаг 2. Переменные окружения
 
 Bothost сам передаёт `BOT_TOKEN`. Остальное имеет значения по умолчанию,
 но лучше задать явно:
@@ -69,13 +77,13 @@ Bothost сам передаёт `BOT_TOKEN`. Остальное имеет зн�
 Не добавляй `PROXY_URL=http://127.0.0.1:10810` на Bothost: локального прокси
 там нет. Код сам игнорирует прокси в среде Bothost (`BOT_ID`).
 
-## Шаг 4. Пересборка и запуск
+## Шаг 3. Пересборка и запуск
 
-После загрузки архива:
+Для Git-деплоя: **«Обновить из Git»** (или дождись автообновления).
+Для архива: **«Сохранить и пересобрать»**.
 
-1. Нажми **«Сохранить и пересобрать»**.
-2. Дождись статуса **Running**.
-3. Открой логи.
+1. Дождись статуса **Running**.
+2. Открой логи.
 
 В логах должно быть:
 
@@ -91,7 +99,7 @@ Run polling for bot @redux_agent
 что не запущен локальный `python bot.py` / `run.bat`: Telegram разрешает
 только одно polling-подключение.
 
-## Шаг 5. Проверка магазина
+## Шаг 4. Проверка магазина
 
 В Telegram:
 
@@ -112,32 +120,58 @@ Run polling for bot @redux_agent
 
 ## Как обновить код
 
-1. Пересобери архив локально (из папки проекта):
+**Git:** закоммить и запушь в `main`, затем на Bothost нажми **«Обновить из Git»**
+(на платных тарифах обновление может идти автоматически).
+
+**Архив:** пересобери zip локально:
 
 ```powershell
 $stage = Join-Path $env:TEMP "reduxshop-pack"
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $stage | Out-Null
-Copy-Item bot.py, bothost.json, Dockerfile, requirements.txt, README.md, DEPLOY_BOTHOST.md $stage
+Copy-Item bot.py, bothost.json, Dockerfile, .dockerignore, requirements.txt, README.md, DEPLOY_BOTHOST.md $stage
 Copy-Item app, assets -Destination $stage -Recurse
 Remove-Item (Join-Path $stage "assets\avatars") -Recurse -Force
+Get-ChildItem -Path $stage -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath reduxshop-bothost.zip -Force
 ```
 
-2. На Bothost загрузи новый архив и нажми **«Сохранить и пересобрать»**.
-3. База в `/app/data` сохранится; настройки и `file_id` баннеров тоже.
+Затем на Bothost загрузи новый архив и нажми **«Сохранить и пересобрать»**.
+База в `/app/data` сохранится; настройки и `file_id` баннеров тоже.
 
-## Git вместо архива
+## Ошибка aiogram.utils.executor
 
-1. Репозиторий: `https://github.com/ZeonPy/ReduxShop`.
-2. На Bothost: **«Создать бота»** → Git URL → ветка `main` → токен бота.
-3. Главный файл: `bot.py`.
-4. В репозиторий не коммить `.env`, `shop.db`, `bot.log`, `__pycache__`.
+```
+ImportError: cannot import name 'executor' from 'aiogram.utils'
+ERROR: The command ... returned a non-zero code: 1
+Build failed: Image was not created
+```
+
+Это не ошибка кода. Встроенный шаблон Bothost **«aiogram»** ставит
+`aiogram==3.32.0`, а затем проверяет `from aiogram.utils import executor` —
+модуль `executor` был только в aiogram 2. Проверка падает всегда, при любом
+проекте на aiogram 3. Понижать версию нельзя: ReduxShop написан под aiogram 3.
+
+Решения по порядку:
+
+1. **Создай бота заново** (или открой настройки существующего) и выбери
+   **Язык / шаблон: `Python`**, а не `aiogram`. Автоопределение тоже лучше
+   не оставлять: в `requirements.txt` есть aiogram, и шаблон может выбраться
+   автоматически.
+2. В **«Дополнительных настройках»** включи **«Использовать собственный
+   Dockerfile»** — тогда платформа возьмёт `Dockerfile` из корня проекта
+   и проверка `executor` выполняться не будет.
+3. Пересобери: **«Сохранить и пересобрать»** → статус **Running**.
+
+Если у старого архивного бота шаблон уже зашит и галочка не помогает,
+удали его и создай нового — данные в `/app/data` у нового бота будут свои,
+поэтому старую базу скачай заранее, если в ней уже есть заказы.
 
 ## Частые ошибки
 
 | Ошибка | Причина / решение |
 |---|---|
+| `ImportError: cannot import name 'executor'` | Выбран шаблон `aiogram` — выбери `Python` и включи свой Dockerfile |
 | `Conflict: terminated by other getUpdates request` | Локальный бот ещё запущен — останови его |
 | `ModuleNotFoundError` | В архив не попал `requirements.txt` или пакет `app/` |
 | База пустая после деплоя | В логах путь должен быть `/app/data/shop.db` |
@@ -146,6 +180,7 @@ Compress-Archive -Path (Join-Path $stage "*") -DestinationPath reduxshop-bothost
 | Ошибка сборки архива | Нужен `.zip`, внутри корня — `bot.py` |
 | Сборка падает на зависимостях | Включи **«Использовать собственный Dockerfile»** |
 | `pip` ругается на версии | В репозитории точные версии без диапазонов |
+| `502/504` на домене | Бот работает через polling, домен и порт ему не нужны |
 
 ## Один экземпляр бота
 

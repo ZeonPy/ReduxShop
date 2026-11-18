@@ -253,6 +253,7 @@ reduxshop-bot/
 ├── requirements.txt
 ├── bothost.json
 ├── Dockerfile
+├── .dockerignore
 ├── README.md
 └── DEPLOY_BOTHOST.md
 ```
