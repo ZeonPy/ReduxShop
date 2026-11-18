@@ -62,13 +62,15 @@ def kb_catalog(
 
 
 def kb_category(
-    settings: RuntimeConfig, products: list[Product]
+    settings: RuntimeConfig,
+    products: list[Product],
+    provider_ready: bool = True,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for product in products:
         if product.stock:
             tail = f"{product.stock} шт."
-        elif product.provider_id is not None:
+        elif product.provider_id is not None and provider_ready:
             tail = "автовыдача"
         else:
             tail = "нет в наличии"
@@ -86,10 +88,11 @@ def kb_category(
     return builder.as_markup()
 
 
-def kb_product(product: Product) -> InlineKeyboardMarkup:
+def kb_product(
+    product: Product, provider_ready: bool = True
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    available = product.stock > 0 or product.provider_id is not None
-    if product.active and available:
+    if product.can_buy(provider_ready):
         builder.button(text="🛒 Купить", callback_data=f"buy:{product.id}")
     builder.button(text="⬅️ К стране", callback_data=f"cat:{product.category_id}")
     builder.button(text="🏠 Меню", callback_data="menu")

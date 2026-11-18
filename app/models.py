@@ -96,6 +96,12 @@ class Product:
     def profit(self) -> int:
         return max(0, self.price - self.cost)
 
+    def can_buy(self, provider_ready: bool = True) -> bool:
+        """Можно ли оформить заказ: ручной сток или активная SMSFast-страна."""
+        return self.active and (
+            self.stock > 0 or (self.provider_id is not None and provider_ready)
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Order:

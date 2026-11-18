@@ -6,11 +6,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from app import __version__
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = BASE_DIR / ".env"
@@ -81,10 +84,16 @@ class Settings:
     smsfast_poll_interval: int = 5
     smsfast_timeout: int = 900
     clean_chat: bool = True
+    bot_token_source: str = "unknown"
 
     @property
     def auto_payment_enabled(self) -> bool:
         return bool(self.payment_provider_token)
+
+    @property
+    def bot_id(self) -> str:
+        head, sep, _ = self.bot_token.partition(":")
+        return head if sep and head.isdigit() else "?"
 
     @property
     def smsfast_ready(self) -> bool:
@@ -125,7 +134,21 @@ class Settings:
 
 def load_settings() -> Settings:
     """Собирает настройки из окружения и .env рядом с проектом."""
+    env_token = os.getenv("BOT_TOKEN", "").strip()
     _load_env_file(ENV_FILE)
+    if env_token:
+        token_source = "env"
+    elif os.getenv("BOT_TOKEN", "").strip():
+        token_source = "file"
+    else:
+        token_source = "none"
+
+    if token_source == "file" and os.getenv("BOT_ID"):
+        logger.warning(
+            "BOT_TOKEN взят из /app/.env. На Bothost старый .env может "
+            "перекрывать токен из панели — задай BOT_TOKEN в переменных "
+            "окружения Bothost или удали /app/.env."
+        )
 
     data_dir = os.getenv("DATA_DIR", "").strip()
     if not data_dir:
@@ -163,4 +186,5 @@ def load_settings() -> Settings:
         smsfast_poll_interval=_env_int("SMSFAST_POLL_INTERVAL", 5),
         smsfast_timeout=_env_int("SMSFAST_TIMEOUT", 900, minimum=60),
         clean_chat=_env_bool("CLEAN_CHAT", True),
+        bot_token_source=token_source,
     )

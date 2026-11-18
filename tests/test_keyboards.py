@@ -63,6 +63,27 @@ class KeyboardsTest(unittest.TestCase):
         self.assertNotIn("buy:10", callbacks(keyboards.kb_product(empty)))
         self.assertIn("buy:9", callbacks(keyboards.kb_product(self.product)))
 
+        provider = Product(
+            id=11,
+            category_id=7,
+            title="Виртуальный номер · Австрия",
+            description="",
+            price=149,
+            active=True,
+            category="🇦🇹 Австрия",
+            stock=0,
+            provider_id=50,
+        )
+        self.assertIn("buy:11", callbacks(keyboards.kb_product(provider)))
+        self.assertIn(
+            "buy:11", callbacks(keyboards.kb_product(provider, provider_ready=True))
+        )
+        self.assertNotIn(
+            "buy:11", callbacks(keyboards.kb_product(provider, provider_ready=False))
+        )
+        self.assertFalse(provider.can_buy(provider_ready=False))
+        self.assertTrue(provider.can_buy(provider_ready=True))
+
     def test_payment_switches_with_auto_payment(self) -> None:
         self.assertIn("paid:3", callbacks(keyboards.kb_payment(3, False)))
         self.assertIn("pay:3", callbacks(keyboards.kb_payment(3, True)))

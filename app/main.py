@@ -128,6 +128,12 @@ async def _before_polling(ctx: AppContext) -> None:
 
 async def run(settings: Settings) -> None:
     settings.validate()
+    logger.info(
+        "BOT_TOKEN: bot_id=%s, длина=%s, источник=%s",
+        settings.bot_id,
+        len(settings.bot_token),
+        settings.bot_token_source,
+    )
     db = Database(settings.db_path)
     await db.connect()
 
@@ -146,6 +152,9 @@ async def run(settings: Settings) -> None:
         except TelegramUnauthorizedError as exc:
             raise ConfigurationError(
                 "Telegram отклонил BOT_TOKEN (401 Unauthorized). "
+                f"Bot ID: {settings.bot_id}, длина токена: "
+                f"{len(settings.bot_token)}, источник: "
+                f"{settings.bot_token_source}. "
                 "Токен отозван, бот удалён или указан неверно. "
                 "Получи новый токен у @BotFather и обнови BOT_TOKEN на Bothost."
             ) from exc

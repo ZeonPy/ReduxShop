@@ -91,7 +91,12 @@ async def cb_category(callback: CallbackQuery, ctx: AppContext) -> None:
             "В этой стране пока нет товаров в наличии. Загляни позже."
         )
     await ctx.banners.show(
-        callback, "country", text, keyboards.kb_category(ctx.settings, products)
+        callback,
+        "country",
+        text,
+        keyboards.kb_category(
+            ctx.settings, products, ctx.settings.smsfast_ready
+        ),
     )
     await callback.answer()
 
@@ -103,15 +108,29 @@ async def cb_product(callback: CallbackQuery, ctx: AppContext) -> None:
         await callback.answer("Товар больше недоступен.", show_alert=True)
         return
 
-    stock_text = f"{product.stock} шт." if product.stock else "нет в наличии"
+    if product.stock:
+        stock_text = f"{product.stock} шт."
+    elif product.provider_id is not None and ctx.settings.smsfast_ready:
+        stock_text = "автовыдача после оплаты"
+    else:
+        stock_text = "нет в наличии"
     text = (
         f"🛍 {product.title}\n\n"
         f"{product.description or 'Описание не указано.'}\n\n"
         f"💰 Цена: {texts.money(ctx.settings, product.price)}\n"
         f"📦 В наличии: {stock_text}"
     )
+    if (
+        not product.stock
+        and product.provider_id is not None
+        and ctx.settings.smsfast_ready
+    ):
+        text += "\n\n📡 Номер покупается автоматически после подтверждения оплаты."
     await ctx.banners.show(
-        callback, "product", text, keyboards.kb_product(product)
+        callback,
+        "product",
+        text,
+        keyboards.kb_product(product, ctx.settings.smsfast_ready),
     )
     await callback.answer()
 
@@ -125,8 +144,11 @@ async def cb_buy(
     if product is None or not product.active:
         await callback.answer("Товар недоступен.", show_alert=True)
         return
-    if product.stock <= 0:
-        await callback.answer("Этого товара нет в наличии.", show_alert=True)
+    if not product.can_buy(ctx.settings.smsfast_ready):
+        await callback.answer(
+            "Этого товара нет в наличии. Напиши в поддержку — поможем.",
+            show_alert=True,
+        )
         return
 
     order, created = await ctx.orders.get_or_create(
