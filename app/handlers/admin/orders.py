@@ -65,6 +65,23 @@ async def cb_admin_deliver(callback: CallbackQuery, ctx: AppContext) -> None:
         )
 
 
+@router.callback_query(F.data.startswith("adm:manual:"))
+async def cb_admin_manual(callback: CallbackQuery, ctx: AppContext) -> None:
+    """Ручная выдача отменённого заказа после сбоя SMSFast."""
+    order_id = tail_int(callback.data) or 0
+    result = await ctx.orders.deliver_manual(order_id)
+    await callback.answer(result.message[:200], show_alert=not result.ok)
+
+    order = await ctx.db.orders.get(order_id)
+    if order is not None:
+        await ctx.banners.show(
+            callback,
+            "admin",
+            texts.admin_order_text(ctx.settings, order),
+            keyboards.kb_admin_order(order),
+        )
+
+
 @router.callback_query(F.data.startswith("adm:markpaid:"))
 async def cb_admin_markpaid(callback: CallbackQuery, ctx: AppContext) -> None:
     order_id = tail_int(callback.data) or 0
@@ -72,13 +89,15 @@ async def cb_admin_markpaid(callback: CallbackQuery, ctx: AppContext) -> None:
     if order is None:
         await callback.answer("Заказ не найден.", show_alert=True)
         return
-    if order.status != OrderStatus.NEW:
+    if order.status == OrderStatus.NEW:
+        await ctx.db.orders.mark_paid(order_id)
+    elif order.status != OrderStatus.PAID:
         await callback.answer(
             "Заказ уже не в статусе «ожидает оплаты».", show_alert=True
         )
         return
 
-    await ctx.db.orders.mark_paid(order_id)
+    result = await ctx.orders.deliver(order_id)
     order = await ctx.db.orders.get(order_id) or order
     await ctx.banners.show(
         callback,
@@ -86,7 +105,7 @@ async def cb_admin_markpaid(callback: CallbackQuery, ctx: AppContext) -> None:
         texts.admin_order_text(ctx.settings, order),
         keyboards.kb_admin_order(order),
     )
-    await callback.answer("Оплата отмечена.")
+    await callback.answer(result.message[:200], show_alert=not result.ok)
 
 
 @router.callback_query(F.data.startswith("adm:cancel:"))
@@ -103,6 +122,8 @@ async def cb_admin_cancel(callback: CallbackQuery, ctx: AppContext) -> None:
         await callback.answer("Заказ уже отменён.", show_alert=True)
         return
 
+    if order.status == OrderStatus.PROCESSING:
+        await ctx.fulfillment.cancel(order)
     await ctx.db.orders.set_status(order_id, OrderStatus.CANCELLED)
     await ctx.notifier.to_user(
         order.user_id,

@@ -6,6 +6,7 @@ import logging
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
+from aiogram.enums import ChatType
 from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 
 from app.config import Settings
@@ -40,6 +41,41 @@ class ContextMiddleware(BaseMiddleware):
                 user.id, user.username, user.full_name or ""
             )
         return await handler(event, data)
+
+
+class ChatCleanupMiddleware(BaseMiddleware):
+    """Убирает сообщение клиента после обработки, чтобы не копить историю.
+
+    Бот и так удаляет свои прошлые экраны в `BannerService`; здесь мы
+    дополнительно чистим сообщения пользователя. Если Telegram запретил
+    удаление (например, сообщение старше 48 часов), просто игнорируем.
+    """
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        message: Message | None = None
+        if isinstance(event, Update):
+            message = event.message
+        elif isinstance(event, Message):
+            message = event
+
+        try:
+            return await handler(event, data)
+        finally:
+            if (
+                message is not None
+                and message.chat.type == ChatType.PRIVATE
+                and message.from_user is not None
+                and not message.from_user.is_bot
+            ):
+                try:
+                    await message.delete()
+                except Exception as exc:
+                    logger.debug("Не смог удалить сообщение клиента: %s", exc)
 
 
 class AdminMiddleware(BaseMiddleware):

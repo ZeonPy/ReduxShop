@@ -76,6 +76,9 @@ class BannerService:
         self._config = config
         self._assets_dir = Path(config.assets_dir)
         self._file_ids: dict[str, str] = {}
+        # Последние сообщения бота в каждом чате: перед новым экраном
+        # удаляем их, чтобы чат не засорялся историей.
+        self._recent: dict[int, list[int]] = {}
 
     # ------------------------------------------------------------------
     # Публичные методы
@@ -90,6 +93,7 @@ class BannerService:
         parse_mode: str | None = None,
     ) -> Message | None:
         """Отправляет новое сообщение с баннером."""
+        await self._cleanup(chat_id)
         media = self._media(key)
         if media is None:
             return await self._send_text(chat_id, text, reply_markup, parse_mode)
@@ -104,6 +108,7 @@ class BannerService:
                     parse_mode=parse_mode,
                 )
                 self._remember(key, sent)
+                self._track(chat_id, sent)
                 return sent
             except TelegramBadRequest as exc:
                 logger.warning("Не смог отправить баннер %s: %s", key, exc)
@@ -161,12 +166,14 @@ class BannerService:
         parse_mode: str | None,
     ) -> Message | None:
         try:
-            return await self._bot.send_message(
+            sent = await self._bot.send_message(
                 chat_id,
                 text,
                 reply_markup=reply_markup,
                 parse_mode=parse_mode,
             )
+            self._track(chat_id, sent)
+            return sent
         except TelegramBadRequest as exc:
             logger.warning("Не смог отправить текст экрана: %s", exc)
             return None
@@ -177,6 +184,7 @@ class BannerService:
                 chat_id, media, caption=SHORT_CAPTIONS.get(key, "ReduxShop")
             )
             self._remember(key, sent)
+            self._track(chat_id, sent)
         except TelegramBadRequest as exc:
             logger.warning("Не смог отправить баннер %s: %s", key, exc)
 
@@ -223,6 +231,7 @@ class BannerService:
                 )
                 if isinstance(sent, Message):
                     self._remember(key, sent)
+                    self._track(chat_id, sent)
                 return sent if isinstance(sent, Message) else None
             except TelegramBadRequest as exc:
                 if "message is not modified" in str(exc):
@@ -241,6 +250,7 @@ class BannerService:
                 parse_mode=parse_mode,
             )
             self._remember(key, sent)
+            self._track(message.chat.id, sent)
             return sent
         except TelegramBadRequest as exc:
             logger.warning("Не смог отправить баннер %s: %s", key, exc)
@@ -261,12 +271,15 @@ class BannerService:
                 message.chat.id, text, reply_markup, parse_mode=None
             )
         try:
-            return await message.edit_text(
+            sent = await message.edit_text(
                 text,
                 reply_markup=(
                     reply_markup if reply_markup is not None else EMPTY_KEYBOARD
                 ),
             )
+            if isinstance(sent, Message):
+                self._track(message.chat.id, sent)
+            return sent if isinstance(sent, Message) else None
         except TelegramBadRequest as exc:
             if "message is not modified" in str(exc):
                 return None
@@ -274,6 +287,26 @@ class BannerService:
             return await self._send_text(
                 message.chat.id, text, reply_markup, parse_mode=None
             )
+
+    def _track(self, chat_id: int, message: Message | None) -> None:
+        if message is None or not self._config.clean_chat:
+            return
+        ids = self._recent.setdefault(chat_id, [])
+        if message.message_id not in ids:
+            ids.append(message.message_id)
+        del ids[:-4]
+
+    async def _cleanup(self, chat_id: int) -> None:
+        if not self._config.clean_chat:
+            return
+        ids = self._recent.pop(chat_id, [])
+        for message_id in ids:
+            try:
+                await self._bot.delete_message(chat_id, message_id)
+            except TelegramBadRequest:
+                pass
+            except Exception as exc:  # сеть/права — не ломаем отправку
+                logger.debug("Не смог удалить сообщение %s: %s", message_id, exc)
 
     @staticmethod
     async def _delete(message: Message) -> None:

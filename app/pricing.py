@@ -4,18 +4,24 @@
 но не ниже 110 ₽. Цена округляется вверх до «красивого» числа,
 оканчивающегося на 9: 119, 149, 199, 249, 299, 349, 399, 499, ...
 
+Доставляемость SMS — доля номеров, на которые реально приходит код. Часть
+активаций заканчивается без SMS, поэтому закупка делится на этот процент:
+при 85% номер за 100 ₽ резервирует 118 ₽, и прибыль не съедается отказами.
+
 Правила можно менять в админ-панели: они хранятся в базе и применяются
 к каталогу одной кнопкой «Пересчитать цены».
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 MIN_PRICE = 110
 CHEAP_LIMIT = 50
 CHEAP_MULTIPLIER = 3
 EXPENSIVE_MULTIPLIER = 2
+DEFAULT_DELIVERABILITY = 85
 
 
 def _round_up(raw: int) -> int:
@@ -37,23 +43,37 @@ class PricingRules:
     cheap_limit: int = CHEAP_LIMIT
     cheap_multiplier: int = CHEAP_MULTIPLIER
     expensive_multiplier: int = EXPENSIVE_MULTIPLIER
+    deliverability: int = DEFAULT_DELIVERABILITY
+
+    def reserved_cost(self, wholesale: int) -> int:
+        """Закупка с резервом на недоставленные SMS.
+
+        При доставляемости 85% и закупке 100 ₽ одна успешная активация
+        должна покрыть 100/0,85 = 117,65 ₽ расходов.
+        """
+        base = max(1, int(wholesale))
+        percent = min(100, max(1, int(self.deliverability)))
+        return max(base, math.ceil(base * 100 / percent))
 
     def price(self, wholesale: int) -> int:
-        wholesale = max(1, int(wholesale))
+        base = max(1, int(wholesale))
         multiplier = (
             self.cheap_multiplier
-            if wholesale <= self.cheap_limit
+            if base <= self.cheap_limit
             else self.expensive_multiplier
         )
-        return max(self.min_price, _round_up(wholesale * multiplier))
+        return max(
+            self.min_price, _round_up(self.reserved_cost(base) * multiplier)
+        )
 
     @property
     def signature(self) -> str:
         return (
-            f"nice-v2-min{self.min_price}"
+            f"nice-v3-min{self.min_price}"
             f"-x{self.cheap_multiplier}"
             f"-x{self.expensive_multiplier}"
             f"-l{self.cheap_limit}"
+            f"-d{self.deliverability}"
         )
 
 

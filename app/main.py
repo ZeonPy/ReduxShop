@@ -23,9 +23,10 @@ from app.handlers.admin import orders as admin_orders
 from app.handlers.admin import panel as admin_panel
 from app.handlers.admin import products as admin_products
 from app.handlers.admin import settings as admin_settings
+from app.handlers.admin import smsfast as admin_smsfast
 from app.handlers.admin import tickets as admin_tickets
 from app.handlers.errors import router as errors_router
-from app.middlewares import AdminMiddleware, ContextMiddleware
+from app.middlewares import AdminMiddleware, ChatCleanupMiddleware, ContextMiddleware
 from app.services.config import ConfigService
 from app.ui import texts
 
@@ -38,6 +39,7 @@ ADMIN_ROUTERS = (
     admin_clients.router,
     admin_products.router,
     admin_settings.router,
+    admin_smsfast.router,
     admin_banners.router,
 )
 
@@ -46,6 +48,7 @@ def build_dispatcher(ctx: AppContext) -> Dispatcher:
     dp = Dispatcher(storage=MemoryStorage())
     dp.message.filter(F.chat.type == ChatType.PRIVATE)
     dp.update.outer_middleware(ContextMiddleware(ctx))
+    dp.update.outer_middleware(ChatCleanupMiddleware())
 
     dp.include_router(common.router)
     dp.include_router(catalog_handlers.router)
@@ -66,6 +69,7 @@ def build_dispatcher(ctx: AppContext) -> Dispatcher:
 
 async def _before_polling(ctx: AppContext) -> None:
     state = await ctx.catalog.ensure_ready()
+    await ctx.fulfillment.resume_pending()
     await ctx.bot.delete_webhook(drop_pending_updates=False)
     await ctx.bot.set_my_commands(
         [
@@ -87,6 +91,11 @@ async def _before_polling(ctx: AppContext) -> None:
         "включена (Telegram Payments)" if ctx.payments.enabled else "выключена",
     )
     logger.info("База данных: %s", ctx.settings.db_path)
+    logger.info(
+        "SMSFast: %s, сервис %s",
+        "подключён" if ctx.settings.smsfast_ready else "не настроен",
+        ctx.settings.smsfast_service,
+    )
     logger.info(
         "Прайс: ×%s до %s %s, ×%s дороже, минимум %s %s (прайс %s)",
         ctx.settings.pricing.cheap_multiplier,
@@ -131,6 +140,7 @@ async def run(settings: Settings) -> None:
         await _before_polling(ctx)
         await dp.start_polling(bot)
     finally:
+        await ctx.smsfast.close()
         await db.close()
         await bot.session.close()
 

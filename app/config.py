@@ -15,6 +15,21 @@ from app import __version__
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = BASE_DIR / ".env"
 DEFAULT_ADMIN_ID = 8147109580
+DEFAULT_SMSFAST_BASE_URL = "https://smsfastapi.com/stubs/handler_api.php"
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw not in {"0", "false", "no", "off", "нет"}
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw.isdigit():
+        return default
+    return max(minimum, int(raw))
 
 
 class ConfigurationError(RuntimeError):
@@ -59,10 +74,25 @@ class Settings:
     data_dir: Path
     db_path: Path
     app_version: str = __version__
+    smsfast_api_key: str = ""
+    smsfast_service: str = "ot"
+    smsfast_base_url: str = DEFAULT_SMSFAST_BASE_URL
+    smsfast_enabled: bool = True
+    smsfast_poll_interval: int = 5
+    smsfast_timeout: int = 900
+    clean_chat: bool = True
 
     @property
     def auto_payment_enabled(self) -> bool:
         return bool(self.payment_provider_token)
+
+    @property
+    def smsfast_ready(self) -> bool:
+        return bool(
+            self.smsfast_enabled
+            and self.smsfast_api_key.strip()
+            and self.smsfast_base_url.strip()
+        )
 
     @property
     def assets_dir(self) -> Path:
@@ -116,4 +146,14 @@ def load_settings() -> Settings:
         proxy_url=proxy_url,
         data_dir=Path(data_dir),
         db_path=Path(db_path),
+        smsfast_api_key=os.getenv("SMSFAST_API_KEY", "").strip(),
+        smsfast_service=os.getenv("SMSFAST_SERVICE", "ot").strip() or "ot",
+        smsfast_base_url=os.getenv("SMSFAST_BASE_URL", DEFAULT_SMSFAST_BASE_URL)
+        .strip()
+        .rstrip("?")
+        or DEFAULT_SMSFAST_BASE_URL,
+        smsfast_enabled=_env_bool("SMSFAST_ENABLED", True),
+        smsfast_poll_interval=_env_int("SMSFAST_POLL_INTERVAL", 5),
+        smsfast_timeout=_env_int("SMSFAST_TIMEOUT", 900, minimum=60),
+        clean_chat=_env_bool("CLEAN_CHAT", True),
     )

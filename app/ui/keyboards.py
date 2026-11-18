@@ -66,7 +66,12 @@ def kb_category(
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for product in products:
-        tail = f"{product.stock} шт." if product.stock else "нет в наличии"
+        if product.stock:
+            tail = f"{product.stock} шт."
+        elif product.provider_id is not None:
+            tail = "автовыдача"
+        else:
+            tail = "нет в наличии"
         builder.button(
             text=(
                 f"{product.title} · {texts.money(settings, product.price)} · {tail}"
@@ -83,7 +88,8 @@ def kb_category(
 
 def kb_product(product: Product) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    if product.active and product.stock > 0:
+    available = product.stock > 0 or product.provider_id is not None
+    if product.active and available:
         builder.button(text="🛒 Купить", callback_data=f"buy:{product.id}")
     builder.button(text="⬅️ К стране", callback_data=f"cat:{product.category_id}")
     builder.button(text="🏠 Меню", callback_data="menu")
@@ -149,15 +155,25 @@ def kb_admin_panel() -> InlineKeyboardMarkup:
     builder.button(text="👥 Клиенты", callback_data="adm:clients")
     builder.button(text="📦 Товары", callback_data="adm:products")
     builder.button(text="📊 Статистика", callback_data="adm:stats")
+    builder.button(text="📡 SMSFast", callback_data="adm:smsfast")
     builder.button(text="⚙️ Настройки", callback_data="adm:settings")
     builder.button(text="🖼 Баннеры", callback_data="adm:banners")
-    builder.adjust(2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 2, 1)
     return builder.as_markup()
 
 
 def kb_order_notify(order_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="📤 Выдать товар", callback_data=f"adm:deliver:{order_id}")
+    builder.button(text="🧾 Открыть заказ", callback_data=f"adm:order:{order_id}")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def kb_order_failed(order_id: int) -> InlineKeyboardMarkup:
+    """Кнопки для уведомления о сбое SMSFast: выдать из стока или открыть."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📦 Выдать из стока", callback_data=f"adm:manual:{order_id}")
     builder.button(text="🧾 Открыть заказ", callback_data=f"adm:order:{order_id}")
     builder.adjust(2)
     return builder.as_markup()
@@ -180,13 +196,26 @@ def kb_admin_orders(settings: RuntimeConfig, orders: list[Order]) -> InlineKeybo
 
 def kb_admin_order(order: Order) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    if order.status not in (OrderStatus.DELIVERED, OrderStatus.CANCELLED):
-        builder.button(text="📤 Выдать товар", callback_data=f"adm:deliver:{order.id}")
-        if order.status == OrderStatus.NEW:
-            builder.button(
-                text="💰 Отметить оплату", callback_data=f"adm:markpaid:{order.id}"
-            )
+    if order.status == OrderStatus.NEW:
+        builder.button(
+            text="💰 Отметить оплату", callback_data=f"adm:markpaid:{order.id}"
+        )
         builder.button(text="❌ Отменить", callback_data=f"adm:cancel:{order.id}")
+    elif order.status == OrderStatus.PAID:
+        builder.button(
+            text="🚀 Купить номер / выдать", callback_data=f"adm:deliver:{order.id}"
+        )
+        builder.button(text="❌ Отменить", callback_data=f"adm:cancel:{order.id}")
+    elif order.status == OrderStatus.PROCESSING:
+        builder.button(
+            text="⏳ Ждём SMS", callback_data=f"adm:order:{order.id}"
+        )
+        builder.button(text="❌ Отменить", callback_data=f"adm:cancel:{order.id}")
+    elif order.status == OrderStatus.CANCELLED:
+        if order.provider_id:
+            builder.button(
+                text="📦 Выдать из стока", callback_data=f"adm:manual:{order.id}"
+            )
     builder.button(text="✉️ Написать клиенту", callback_data=f"adm:cmsg:{order.user_id}")
     builder.button(text="⬅️ Заказы", callback_data="adm:orders")
     builder.adjust(2)
@@ -338,10 +367,14 @@ def kb_admin_settings() -> InlineKeyboardMarkup:
     builder.button(
         text="📉 Наценка > порога", callback_data="adm:set:expensive_multiplier"
     )
+    builder.button(
+        text="📡 Доставляемость SMS", callback_data="adm:set:deliverability"
+    )
     builder.button(text="🖼 Баннеры", callback_data="adm:banners")
+    builder.button(text="📡 SMSFast", callback_data="adm:smsfast")
     builder.button(text="🔄 Пересчитать цены", callback_data="adm:reprice")
     builder.button(text="⬅️ Панель", callback_data="adm:panel")
-    builder.adjust(2, 2, 2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 2, 2, 2, 1)
     return builder.as_markup()
 
 
@@ -373,4 +406,22 @@ def kb_banner_screen(screen: str, has_custom: bool) -> InlineKeyboardMarkup:
         )
     builder.button(text="⬅️ Баннеры", callback_data="adm:banners")
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def kb_smsfast(settings: RuntimeConfig) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="🔄 Синхронизировать цены", callback_data="adm:smsfast:sync"
+    )
+    builder.button(text="💳 Проверить баланс", callback_data="adm:smsfast:balance")
+    builder.button(text="🔑 API-ключ", callback_data="adm:set:smsfast_api_key")
+    builder.button(text="🧩 Сервис", callback_data="adm:set:smsfast_service")
+    builder.button(text="🌐 Адрес API", callback_data="adm:set:smsfast_base_url")
+    builder.button(
+        text="🔴 Выключить" if settings.smsfast_enabled else "🟢 Включить",
+        callback_data="adm:smsfast:toggle",
+    )
+    builder.button(text="⬅️ Панель", callback_data="adm:panel")
+    builder.adjust(2, 2, 2, 1)
     return builder.as_markup()

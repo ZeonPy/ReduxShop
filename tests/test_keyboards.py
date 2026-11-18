@@ -82,10 +82,22 @@ class KeyboardsTest(unittest.TestCase):
             "adm:set:cheap_limit",
             "adm:set:cheap_multiplier",
             "adm:set:expensive_multiplier",
+            "adm:set:deliverability",
             "adm:reprice",
+            "adm:smsfast",
             "adm:banners",
         ):
             self.assertIn(callback, data)
+
+        smsfast = callbacks(keyboards.kb_smsfast(self.config))
+        for callback in (
+            "adm:smsfast:sync",
+            "adm:smsfast:balance",
+            "adm:set:smsfast_api_key",
+            "adm:set:smsfast_service",
+            "adm:smsfast:toggle",
+        ):
+            self.assertIn(callback, smsfast)
 
     def test_banner_keyboard_marks_custom(self) -> None:
         self.config.banner_file_ids["main"] = "custom-file-id"
@@ -105,9 +117,25 @@ class KeyboardsTest(unittest.TestCase):
             product_title="Товар",
         )
         data = callbacks(keyboards.kb_admin_order(order))
-        self.assertIn("adm:deliver:5", data)
+        # Номер нельзя покупать до подтверждения оплаты, поэтому у нового
+        # заказа нет кнопки выдачи — только «Отметить оплату» и «Отменить».
+        self.assertNotIn("adm:deliver:5", data)
         self.assertIn("adm:markpaid:5", data)
         self.assertIn("adm:cancel:5", data)
+
+        paid = Order(
+            id=5,
+            user_id=2,
+            product_id=9,
+            price=110,
+            status=OrderStatus.PAID,
+            created_at="2026-01-01 00:00:00",
+            product_title="Товар",
+        )
+        data = callbacks(keyboards.kb_admin_order(paid))
+        self.assertIn("adm:deliver:5", data)
+        self.assertIn("adm:cancel:5", data)
+        self.assertNotIn("adm:markpaid:5", data)
 
         order = Order(
             id=5,
@@ -121,6 +149,41 @@ class KeyboardsTest(unittest.TestCase):
         data = callbacks(keyboards.kb_admin_order(order))
         self.assertNotIn("adm:deliver:5", data)
         self.assertIn("adm:cmsg:2", data)
+
+    def test_cancelled_provider_order_offers_manual_delivery(self) -> None:
+        failed = Order(
+            id=5,
+            user_id=2,
+            product_id=9,
+            price=110,
+            status=OrderStatus.CANCELLED,
+            created_at="2026-01-01 00:00:00",
+            product_title="Товар",
+            provider="smsfast",
+            provider_id="act-1",
+            provider_error="таймаут",
+        )
+        data = callbacks(keyboards.kb_admin_order(failed))
+        self.assertIn("adm:manual:5", data)
+        self.assertNotIn("adm:deliver:5", data)
+        self.assertNotIn("adm:cancel:5", data)
+
+        manual_cancel = Order(
+            id=5,
+            user_id=2,
+            product_id=9,
+            price=110,
+            status=OrderStatus.CANCELLED,
+            created_at="2026-01-01 00:00:00",
+            product_title="Товар",
+        )
+        self.assertNotIn(
+            "adm:manual:5", callbacks(keyboards.kb_admin_order(manual_cancel))
+        )
+
+        failed_notify = callbacks(keyboards.kb_order_failed(5))
+        self.assertIn("adm:manual:5", failed_notify)
+        self.assertIn("adm:order:5", failed_notify)
 
     def test_admin_ticket_buttons(self) -> None:
         ticket = Ticket(

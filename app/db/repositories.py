@@ -134,14 +134,27 @@ class CategoryRepository:
         )
         return [Category.from_row(row) for row in rows]
 
+    async def list_all(self) -> list[Category]:
+        rows = await self._conn.fetchall(f"{self._CARD} ORDER BY c.id")
+        return [Category.from_row(row) for row in rows]
+
     async def count(self) -> int:
         return int(await self._conn.scalar("SELECT COUNT(*) FROM categories") or 0)
 
-    async def create(self, title: str) -> int:
+    async def create(self, title: str, provider_id: int | None = None) -> int:
         cursor = await self._conn.execute(
-            "INSERT INTO categories (title) VALUES (?)", (title,)
+            "INSERT INTO categories (title, provider_id) VALUES (?, ?)",
+            (title, provider_id),
         )
         return int(cursor.lastrowid)
+
+    async def set_provider_id(self, category_id: int, provider_id: int) -> int:
+        cursor = await self._conn.execute(
+            "UPDATE categories SET provider_id = ? WHERE id = ? AND "
+            "(provider_id IS NULL OR provider_id != ?)",
+            (provider_id, category_id, provider_id),
+        )
+        return cursor.rowcount or 0
 
     async def reset_demo(self) -> None:
         """Удаляет старую демо-категорию вместе с её товарами и стоком.
@@ -164,7 +177,7 @@ class CategoryRepository:
         where = "AND p.active = 1" if active_only else ""
         rows = await self._conn.fetchall(
             f"""
-            SELECT p.*, c.title AS category,
+            SELECT p.*, c.title AS category, c.provider_id AS provider_id,
                    (SELECT COUNT(*) FROM stock s
                      WHERE s.product_id = p.id AND s.order_id IS NULL) AS stock
             FROM products p
@@ -192,7 +205,7 @@ class ProductRepository:
         params: tuple[Any, ...] = (limit, max(offset, 0)) if limit is not None else ()
         rows = await self._conn.fetchall(
             f"""
-            SELECT p.*, c.title AS category,
+            SELECT p.*, c.title AS category, c.provider_id AS provider_id,
                    (SELECT COUNT(*) FROM stock s
                      WHERE s.product_id = p.id AND s.order_id IS NULL) AS stock
             FROM products p
@@ -214,7 +227,7 @@ class ProductRepository:
     async def get(self, product_id: int) -> Product | None:
         row = await self._conn.fetchone(
             """
-            SELECT p.*, c.title AS category,
+            SELECT p.*, c.title AS category, c.provider_id AS provider_id,
                    (SELECT COUNT(*) FROM stock s
                      WHERE s.product_id = p.id AND s.order_id IS NULL) AS stock
             FROM products p
@@ -231,6 +244,7 @@ class ProductRepository:
         price: int,
         description: str,
         category_id: int | None = None,
+        cost: int = 0,
     ) -> int:
         if category_id is None:
             category_id = await self._conn.scalar(
@@ -243,10 +257,10 @@ class ProductRepository:
             category_id = int(cursor.lastrowid)
         cursor = await self._conn.execute(
             """
-            INSERT INTO products (category_id, title, description, price)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO products (category_id, title, description, price, cost)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (category_id, title, description, price),
+            (category_id, title, description, price, cost),
         )
         return int(cursor.lastrowid)
 
@@ -284,6 +298,21 @@ class ProductRepository:
         )
         return cursor.rowcount or 0
 
+    async def update_country_product(
+        self, product_id: int, price: int, cost: int
+    ) -> int:
+        cursor = await self._conn.execute(
+            """
+            UPDATE products SET price = ?, cost = ?
+            WHERE id = ? AND (price != ? OR cost != ?)
+            """,
+            (price, cost, product_id, price, cost),
+        )
+        return cursor.rowcount or 0
+
+    async def set_price_and_cost(self, product_id: int, price: int, cost: int) -> int:
+        return await self.update_country_product(product_id, price, cost)
+
     async def stock_content(self, order_id: int) -> str | None:
         value = await self._conn.scalar(
             "SELECT content FROM stock WHERE order_id = ?", (order_id,)
@@ -306,10 +335,15 @@ class OrderRepository:
         JOIN users u ON u.id = o.user_id
     """
 
-    async def create(self, user_id: int, product_id: int, price: int) -> int:
+    async def create(
+        self, user_id: int, product_id: int, price: int, cost: int = 0
+    ) -> int:
         cursor = await self._conn.execute(
-            "INSERT INTO orders (user_id, product_id, price, created_at) VALUES (?, ?, ?, ?)",
-            (user_id, product_id, price, utc_now()),
+            """
+            INSERT INTO orders (user_id, product_id, price, cost, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, product_id, price, cost, utc_now()),
         )
         return int(cursor.lastrowid)
 
@@ -354,21 +388,126 @@ class OrderRepository:
     async def mark_paid(self, order_id: int) -> bool:
         cursor = await self._conn.execute(
             """
-            UPDATE orders SET status = 'paid', paid_at = ?
+            UPDATE orders SET status = 'paid', paid_at = ?, updated_at = ?
             WHERE id = ? AND status = 'new'
             """,
-            (utc_now(), order_id),
+            (utc_now(), utc_now(), order_id),
         )
         return (cursor.rowcount or 0) > 0
 
     async def set_status(self, order_id: int, status: OrderStatus) -> None:
         await self._conn.execute(
-            "UPDATE orders SET status = ? WHERE id = ?", (status.value, order_id)
+            "UPDATE orders SET status = ?, updated_at = ? WHERE id = ?",
+            (status.value, utc_now(), order_id),
         )
 
-    async def deliver(self, order_id: int) -> tuple[Order, str] | None:
-        """Атомарно выдаёт позицию стока. None — если товара нет или гонка."""
+    async def start_processing(self, order_id: int) -> bool:
+        """Атомарно переводит оплаченный заказ в «покупаю номер»."""
+        cursor = await self._conn.execute(
+            """
+            UPDATE orders SET status = 'processing', updated_at = ?
+            WHERE id = ? AND status = 'paid'
+            """,
+            (utc_now(), order_id),
+        )
+        return (cursor.rowcount or 0) > 0
+
+    async def set_provider_activation(
+        self,
+        order_id: int,
+        *,
+        provider: str,
+        provider_id: str,
+        phone: str,
+        cost: int,
+    ) -> None:
+        await self._conn.execute(
+            """
+            UPDATE orders
+            SET status = 'processing', provider = ?, provider_id = ?,
+                provider_phone = ?, cost = ?, provider_error = '', updated_at = ?
+            WHERE id = ?
+            """,
+            (provider, provider_id, phone, cost, utc_now(), order_id),
+        )
+
+    async def mark_provider_delivered(self, order_id: int, code: str) -> bool:
+        cursor = await self._conn.execute(
+            """
+            UPDATE orders
+            SET status = 'delivered', sms_code = ?, delivered_at = ?,
+                provider_error = '', updated_at = ?
+            WHERE id = ? AND status = 'processing'
+            """,
+            (code, utc_now(), utc_now(), order_id),
+        )
+        return (cursor.rowcount or 0) > 0
+
+    async def fail_provider(self, order_id: int, error: str) -> bool:
+        cursor = await self._conn.execute(
+            """
+            UPDATE orders
+            SET status = 'cancelled', provider_error = ?, updated_at = ?
+            WHERE id = ? AND status = 'processing'
+            """,
+            (error[:500], utc_now(), order_id),
+        )
+        return (cursor.rowcount or 0) > 0
+
+    async def return_to_paid(self, order_id: int, error: str = "") -> bool:
+        """Возврат в «оплачен», если номер ещё не был куплен."""
+        cursor = await self._conn.execute(
+            """
+            UPDATE orders
+            SET status = 'paid', provider_error = ?, updated_at = ?
+            WHERE id = ? AND status = 'processing' AND COALESCE(provider_id, '') = ''
+            """,
+            (error[:500], utc_now(), order_id),
+        )
+        return (cursor.rowcount or 0) > 0
+
+    async def set_provider_error(self, order_id: int, error: str) -> None:
+        await self._conn.execute(
+            "UPDATE orders SET provider_error = ?, updated_at = ? WHERE id = ?",
+            (error[:500], utc_now(), order_id),
+        )
+
+    async def list_processing(self) -> list[Order]:
+        rows = await self._conn.fetchall(
+            f"{self._SELECT} WHERE o.status = 'processing' ORDER BY o.id"
+        )
+        return [Order.from_row(row) for row in rows]
+
+    async def clear_provider(self, order_id: int) -> None:
+        await self._conn.execute(
+            """
+            UPDATE orders
+            SET provider = '', provider_id = '', provider_phone = '',
+                sms_code = '', updated_at = ?
+            WHERE id = ?
+            """,
+            (utc_now(), order_id),
+        )
+
+    async def deliver(
+        self, order_id: int, *, allow_cancelled: bool = False
+    ) -> tuple[Order, str] | None:
+        """Атомарно выдаёт позицию стока. None — если товара нет или гонка.
+
+        `allow_cancelled` нужен для ручной выдачи после сбоя SMSFast: заказ
+        отменён, но клиент оплатил, и админ закрывает его из стока. Активация
+        провайдера при этом остаётся в истории, поэтому статистика
+        доставляемости продолжает видеть неудачную попытку.
+        """
         now = utc_now()
+        statuses = (
+            "'new', 'paid', 'cancelled'" if allow_cancelled else "'new', 'paid'"
+        )
+        reset = (
+            ", provider_phone = '', sms_code = ''"
+            if allow_cancelled
+            else ", provider_error = ''"
+        )
         try:
             async with self._conn.transaction():
                 row = await self._conn.fetchone(
@@ -393,13 +532,14 @@ class OrderRepository:
                     raise _Rollback
 
                 cursor = await self._conn.execute(
-                    """
+                    f"""
                     UPDATE orders
                     SET status = 'delivered', stock_id = ?,
-                        paid_at = COALESCE(paid_at, ?), delivered_at = ?
-                    WHERE id = ? AND status IN ('new', 'paid')
+                        paid_at = COALESCE(paid_at, ?), delivered_at = ?,
+                        updated_at = ?{reset}
+                    WHERE id = ? AND status IN ({statuses})
                     """,
-                    (row["id"], now, now, order_id),
+                    (row["id"], now, now, now, order_id),
                 )
                 if (cursor.rowcount or 0) != 1:
                     raise _Rollback
@@ -531,16 +671,90 @@ class StatsRepository:
             )
             or 0
         )
+        cost = int(
+            await self._conn.scalar(
+                "SELECT COALESCE(SUM(cost), 0) FROM orders WHERE status = 'delivered'"
+            )
+            or 0
+        )
+        paid = int(
+            await self._conn.scalar(
+                "SELECT COUNT(*) FROM orders WHERE status = 'paid'"
+            )
+            or 0
+        )
+        processing = int(
+            await self._conn.scalar(
+                "SELECT COUNT(*) FROM orders WHERE status = 'processing'"
+            )
+            or 0
+        )
+        cancelled = int(
+            await self._conn.scalar(
+                "SELECT COUNT(*) FROM orders WHERE status = 'cancelled'"
+            )
+            or 0
+        )
         open_tickets = int(
             await self._conn.scalar(
                 "SELECT COUNT(*) FROM tickets WHERE status = 'open'"
             )
             or 0
         )
+        provider_delivered, provider_failed = await self.provider_outcomes()
+        provider_total = provider_delivered + provider_failed
+        deliverability = (
+            round(provider_delivered * 100 / provider_total)
+            if provider_total
+            else 0
+        )
+        profit = revenue - cost
+        margin = round(profit * 100 / revenue) if revenue else 0
         return Stats(
             users=users,
             orders=orders,
             delivered=delivered,
             revenue=revenue,
             open_tickets=open_tickets,
+            paid=paid,
+            processing=processing,
+            cancelled=cancelled,
+            cost=cost,
+            profit=profit,
+            margin=margin,
+            provider_delivered=provider_delivered,
+            provider_failed=provider_failed,
+            deliverability=deliverability,
         )
+
+    async def provider_outcomes(self) -> tuple[int, int]:
+        """Сколько активаций SMSFast завершилось кодом, а сколько сбоем.
+
+        Ручная выдача после сбоя оставляет `provider` и `provider_id`, но без
+        `sms_code`: для доставляемости это по-прежнему неудачная активация.
+        """
+        delivered = int(
+            await self._conn.scalar(
+                """
+                SELECT COUNT(*) FROM orders
+                WHERE status = 'delivered'
+                  AND COALESCE(provider, '') != ''
+                  AND COALESCE(sms_code, '') != ''
+                """
+            )
+            or 0
+        )
+        failed = int(
+            await self._conn.scalar(
+                """
+                SELECT COUNT(*) FROM orders
+                WHERE COALESCE(provider, '') != ''
+                  AND (
+                    status = 'cancelled'
+                    OR (status = 'delivered' AND COALESCE(sms_code, '') = '')
+                  )
+                """
+            )
+            or 0
+        )
+        return delivered, failed

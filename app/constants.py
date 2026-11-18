@@ -16,6 +16,7 @@ TICKET_MESSAGE_PREVIEW = 300
 class OrderStatus(str, Enum):
     NEW = "new"
     PAID = "paid"
+    PROCESSING = "processing"
     DELIVERED = "delivered"
     CANCELLED = "cancelled"
 
@@ -33,6 +34,7 @@ class TicketSender(str, Enum):
 STATUS_LABELS: dict[OrderStatus, str] = {
     OrderStatus.NEW: "🟡 ожидает оплаты",
     OrderStatus.PAID: "🟢 оплачен",
+    OrderStatus.PROCESSING: "🔵 номер куплен, ждём SMS",
     OrderStatus.DELIVERED: "✅ выдан",
     OrderStatus.CANCELLED: "❌ отменён",
 }
@@ -40,6 +42,7 @@ STATUS_LABELS: dict[OrderStatus, str] = {
 STATUS_EMOJI: dict[OrderStatus, str] = {
     OrderStatus.NEW: "🟡",
     OrderStatus.PAID: "🟢",
+    OrderStatus.PROCESSING: "🔵",
     OrderStatus.DELIVERED: "✅",
     OrderStatus.CANCELLED: "❌",
 }

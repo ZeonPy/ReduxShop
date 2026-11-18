@@ -9,6 +9,7 @@ from app.config import Settings
 from app.db import Database
 from app.pricing import PricingRules
 from app.runtime import RuntimeConfig
+from app.services.smsfast import DEFAULT_SERVICE, SMSFAST_SERVICES
 from app.ui.banners import BANNERS
 
 logger = logging.getLogger(__name__)
@@ -28,8 +29,16 @@ PRICING_FIELDS = {
     "cheap_limit": (0, 1_000_000),
     "cheap_multiplier": (1, 10),
     "expensive_multiplier": (1, 10),
+    "deliverability": (1, 100),
 }
 PRICING_KEYS = frozenset(PRICING_FIELDS)
+
+SMSFAST_TEXT_KEYS = {
+    "smsfast_api_key": (0, 200),
+    "smsfast_service": (1, 16),
+    "smsfast_base_url": (10, 300),
+}
+SMSFAST_KEYS = frozenset(SMSFAST_TEXT_KEYS)
 
 SETTING_TITLES = {
     "shop_name": "Название магазина",
@@ -40,6 +49,10 @@ SETTING_TITLES = {
     "cheap_limit": "Порог дешёвых стран",
     "cheap_multiplier": "Наценка для дешёвых",
     "expensive_multiplier": "Наценка для дорогих",
+    "deliverability": "Доставляемость SMS",
+    "smsfast_api_key": "SMSFast API-ключ",
+    "smsfast_service": "Сервис SMSFast",
+    "smsfast_base_url": "Адрес API SMSFast",
 }
 
 SETTING_HINTS = {
@@ -51,6 +64,18 @@ SETTING_HINTS = {
     "cheap_limit": "Закупка до этой суммы идёт с первой наценкой",
     "cheap_multiplier": "Целое число от 1 до 10. Например: 3",
     "expensive_multiplier": "Целое число от 1 до 10. Например: 2",
+    "deliverability": (
+        "Процент номеров, на которые приходит SMS. 85 значит, что в цену "
+        "заложен резерв: закупка делится на 0,85. Обычно 80–95."
+    ),
+    "smsfast_api_key": (
+        "Ключ из личного кабинета SMSFast. Отправь «-», чтобы удалить ключ."
+    ),
+    "smsfast_service": (
+        "Код сервиса: "
+        + ", ".join(f"{code} — {name}" for code, name in SMSFAST_SERVICES.items())
+    ),
+    "smsfast_base_url": "Обычно https://smsfastapi.com/stubs/handler_api.php",
 }
 
 
@@ -72,6 +97,8 @@ class ConfigService:
             try:
                 if key == BANNERS_ENABLED_KEY:
                     config.banners_enabled = raw != "0"
+                elif key == "smsfast_enabled":
+                    config.smsfast_enabled = raw != "0"
                 elif key.startswith(BANNER_PREFIX):
                     screen = key.removeprefix(BANNER_PREFIX)
                     if screen in BANNERS and raw:
@@ -80,6 +107,8 @@ class ConfigService:
                     self._apply_text(config, key, self.parse(key, raw))
                 elif key in PRICING_KEYS:
                     pricing_values[key] = int(self.parse(key, raw))
+                elif key in SMSFAST_TEXT_KEYS:
+                    self._apply_smsfast(config, key, self.parse(key, raw))
             except (ConfigError, ValueError) as exc:
                 logger.warning("Игнорирую настройку %s=%r: %s", key, raw, exc)
 
@@ -113,6 +142,27 @@ class ConfigService:
                 raise ConfigError(f"Допустимо от {minimum} до {maximum}.")
             return str(value)
 
+        if key == "smsfast_api_key":
+            if text in {"", "-", "—", "удалить"}:
+                return ""
+            if not (8 <= len(text) <= 200):
+                raise ConfigError("Ключ SMSFast должен быть от 8 до 200 символов.")
+            return text
+
+        if key == "smsfast_service":
+            code = text.lower().strip()
+            if code not in SMSFAST_SERVICES:
+                allowed = ", ".join(SMSFAST_SERVICES)
+                raise ConfigError(f"Неизвестный сервис. Допустимо: {allowed}.")
+            return code
+
+        if key == "smsfast_base_url":
+            if not text.startswith(("http://", "https://")):
+                raise ConfigError("Адрес API должен начинаться с http:// или https://")
+            if len(text) > 300:
+                raise ConfigError("Слишком длинный адрес API.")
+            return text.rstrip("?")
+
         raise ConfigError("Неизвестная настройка.")
 
     async def update(self, config: RuntimeConfig, key: str, raw: str) -> bool:
@@ -127,6 +177,9 @@ class ConfigService:
             changes = {key: int(value)}
             config.pricing = replace(config.pricing, **changes)
             return True
+        if key in SMSFAST_TEXT_KEYS:
+            self._apply_smsfast(config, key, value)
+            return False
         raise ConfigError("Неизвестная настройка.")
 
     async def set_banners_enabled(
@@ -134,6 +187,23 @@ class ConfigService:
     ) -> None:
         config.banners_enabled = enabled
         await self._db.settings.set(BANNERS_ENABLED_KEY, "1" if enabled else "0")
+
+    async def set_smsfast_enabled(
+        self, config: RuntimeConfig, enabled: bool
+    ) -> None:
+        config.smsfast_enabled = enabled
+        await self._db.settings.set("smsfast_enabled", "1" if enabled else "0")
+
+    @staticmethod
+    def _apply_smsfast(config: RuntimeConfig, key: str, value: str) -> None:
+        if key == "smsfast_api_key":
+            config.smsfast_api_key = value
+        elif key == "smsfast_service":
+            config.smsfast_service = value or DEFAULT_SERVICE
+        elif key == "smsfast_base_url":
+            config.smsfast_base_url = value
+        else:  # pragma: no cover - защита от опечатки в ключах
+            raise ConfigError("Неизвестная настройка SMSFast.")
 
     async def set_banner(
         self, config: RuntimeConfig, screen: str, file_id: str

@@ -39,6 +39,14 @@ def _current_value(ctx: AppContext, key: str) -> str:
         return str(settings.pricing.cheap_multiplier)
     if key == "expensive_multiplier":
         return str(settings.pricing.expensive_multiplier)
+    if key == "deliverability":
+        return str(settings.pricing.deliverability)
+    if key == "smsfast_api_key":
+        return settings.smsfast_key_masked
+    if key == "smsfast_service":
+        return settings.smsfast_service
+    if key == "smsfast_base_url":
+        return settings.smsfast_base_url
     raise ConfigError("Неизвестная настройка.")
 
 

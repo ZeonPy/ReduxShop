@@ -56,7 +56,7 @@ async def cb_my_order(callback: CallbackQuery, ctx: AppContext) -> None:
             text += "\n\n💳 Нажми «Оплатить» — счёт придёт отдельным сообщением."
         else:
             text += f"\n\nОплата:\n{texts.payment_details(ctx.settings)}"
-    if order.status.value == "delivered":
+    if order.status.value == "delivered" and not order.sms_code:
         content = await ctx.db.products.stock_content(order.id)
         if content:
             text += f"\n\n🔑 Выданный товар:\n{content}"
@@ -87,14 +87,16 @@ async def cb_paid(callback: CallbackQuery, ctx: AppContext) -> None:
         await callback.answer("Оплата уже отмечена, жди выдачи.", show_alert=True)
         return
 
-    await ctx.db.orders.mark_paid(order_id)
+    # Клиентское «Я оплатил» — только сигнал админу. Статус остаётся «new»,
+    # пока оплату не подтвердит админ или Telegram Payments. Иначе номер
+    # купился бы по непроверенному нажатию.
     order = await ctx.db.orders.get(order_id) or order
     await ctx.notifier.to_admins(
-        f"💰 Клиент отметил оплату по заказу #{order_id}\n"
+        f"💰 Клиент нажал «Я оплатил» по заказу #{order_id}\n"
         f"Клиент: {texts.display_order_user(order)}\n"
         f"Товар: {order.product_title}\n"
         f"Сумма: {texts.money(ctx.settings, order.price)}\n\n"
-        "Проверь платёж и выдай товар.",
+        "Проверь платёж, затем нажми «Отметить оплату» — бот купит номер.",
         reply_markup=keyboards.kb_order_notify(order_id),
         key="payment",
     )
@@ -128,7 +130,7 @@ async def cb_pay(callback: CallbackQuery, ctx: AppContext) -> None:
             show_alert=True,
         )
         return
-    if await ctx.db.products.stock_count(order.product_id) <= 0:
+    if not await ctx.orders.can_fulfill(order):
         await callback.answer(
             "Товар закончился. Напиши в поддержку — решим вопрос.",
             show_alert=True,
@@ -164,7 +166,7 @@ async def pre_checkout(query: PreCheckoutQuery, ctx: AppContext) -> None:
     if order.status.value == "cancelled":
         await query.answer(ok=False, error_message="Заказ отменён. Создай новый.")
         return
-    if await ctx.db.products.stock_count(order.product_id) <= 0:
+    if not await ctx.orders.can_fulfill(order):
         await query.answer(
             ok=False,
             error_message="Товар закончился. Напиши в поддержку — поможем.",
@@ -245,7 +247,21 @@ async def on_successful_payment(message: Message, ctx: AppContext) -> None:
         )
 
     result = await ctx.orders.deliver(order_id)
-    if result.ok:
+    if result.ok and result.pending:
+        await ctx.notifier.to_admins(
+            f"💰 Автооплата по заказу #{order_id}\n"
+            f"Клиент: {texts.display_order_user(order)}\n"
+            f"Товар: {order.product_title}\n"
+            f"Сумма: {texts.money(ctx.settings, order.price)}\n\n"
+            "📡 Номер SMSFast куплен, жду SMS-код.",
+            key="orders",
+        )
+        await ctx.banners.show(
+            message,
+            "payment",
+            "✅ Оплата получена! Номер куплен — жди SMS, код придёт сюда автоматически.",
+        )
+    elif result.ok:
         await ctx.notifier.to_admins(
             f"💰 Автооплата по заказу #{order_id}\n"
             f"Клиент: {texts.display_order_user(order)}\n"
@@ -268,6 +284,6 @@ async def on_successful_payment(message: Message, ctx: AppContext) -> None:
         await ctx.banners.show(
             message,
             "orders",
-            "✅ Оплата получена! Товара не оказалось в наличии — оператор "
-            "выдаст его вручную или свяжется с тобой.",
+            "✅ Оплата получена! Не удалось выдать автоматически — оператор "
+            "свяжется с тобой и решит вопрос.",
         )

@@ -47,16 +47,19 @@ class Category:
     products: int = 0
     min_price: int | None = None
     stock: int = 0
+    provider_id: int | None = None
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "Category":
         min_price = row_value(row, "min_price")
+        provider_id = row_value(row, "provider_id")
         return cls(
             id=int(row["id"]),
             title=str(row["title"]),
             products=int(row_value(row, "products") or 0),
             min_price=int(min_price) if min_price is not None else None,
             stock=int(row_value(row, "stock") or 0),
+            provider_id=int(provider_id) if provider_id is not None else None,
         )
 
 
@@ -70,9 +73,12 @@ class Product:
     active: bool
     category: str = ""
     stock: int = 0
+    cost: int = 0
+    provider_id: int | None = None
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "Product":
+        provider_id = row_value(row, "provider_id")
         return cls(
             id=int(row["id"]),
             category_id=int(row["category_id"]),
@@ -82,7 +88,13 @@ class Product:
             active=bool(row["active"]),
             category=row_value(row, "category") or "",
             stock=int(row_value(row, "stock") or 0),
+            cost=int(row_value(row, "cost") or 0),
+            provider_id=int(provider_id) if provider_id is not None else None,
         )
+
+    @property
+    def profit(self) -> int:
+        return max(0, self.price - self.cost)
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +111,17 @@ class Order:
     product_title: str = ""
     full_name: str = ""
     username: str | None = None
+    cost: int = 0
+    provider: str = ""
+    provider_id: str = ""
+    provider_phone: str = ""
+    sms_code: str = ""
+    provider_error: str = ""
+    updated_at: str | None = None
+
+    @property
+    def profit(self) -> int:
+        return self.price - self.cost
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "Order":
@@ -120,6 +143,13 @@ class Order:
             product_title=row_value(row, "product_title") or "",
             full_name=row_value(row, "full_name") or "",
             username=row_value(row, "username"),
+            cost=int(row_value(row, "cost") or 0),
+            provider=row_value(row, "provider") or "",
+            provider_id=row_value(row, "provider_id") or "",
+            provider_phone=row_value(row, "provider_phone") or "",
+            sms_code=row_value(row, "sms_code") or "",
+            provider_error=row_value(row, "provider_error") or "",
+            updated_at=row_value(row, "updated_at"),
         )
 
 
@@ -198,3 +228,12 @@ class Stats:
     delivered: int
     revenue: int
     open_tickets: int
+    paid: int = 0
+    processing: int = 0
+    cancelled: int = 0
+    cost: int = 0
+    profit: int = 0
+    margin: int = 0
+    provider_delivered: int = 0
+    provider_failed: int = 0
+    deliverability: int = 0

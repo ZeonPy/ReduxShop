@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from app.db.connection import Connection
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _META = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -108,6 +108,49 @@ MIGRATIONS: tuple[Migration, ...] = (
 )
 
 
+_V4_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "categories": (("provider_id", "INTEGER"),),
+    "products": (("cost", "INTEGER NOT NULL DEFAULT 0"),),
+    "orders": (
+        ("cost", "INTEGER NOT NULL DEFAULT 0"),
+        ("provider", "TEXT NOT NULL DEFAULT ''"),
+        ("provider_id", "TEXT NOT NULL DEFAULT ''"),
+        ("provider_phone", "TEXT NOT NULL DEFAULT ''"),
+        ("sms_code", "TEXT NOT NULL DEFAULT ''"),
+        ("provider_error", "TEXT NOT NULL DEFAULT ''"),
+        ("updated_at", "TEXT"),
+    ),
+}
+
+_V4_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_categories_provider ON categories(provider_id);
+CREATE INDEX IF NOT EXISTS idx_orders_provider ON orders(provider_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+"""
+
+
+async def _table_columns(conn: Connection, table: str) -> set[str]:
+    rows = await conn.fetchall(f"PRAGMA table_info({table})")
+    return {str(row["name"]) for row in rows}
+
+
+async def _add_columns(
+    conn: Connection, table: str, columns: tuple[tuple[str, str], ...]
+) -> None:
+    existing = await _table_columns(conn, table)
+    for name, definition in columns:
+        if name in existing:
+            continue
+        await conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+async def _migrate_v4(conn: Connection) -> None:
+    """Добавляет поля SMSFast. SQLite не умеет ADD COLUMN IF NOT EXISTS."""
+    for table, columns in _V4_COLUMNS.items():
+        await _add_columns(conn, table, columns)
+    await conn.executescript(_V4_INDEXES)
+
+
 async def migrate(conn: Connection) -> None:
     await conn.executescript(_META)
     current = int(await conn.scalar("SELECT value FROM meta WHERE key = 'schema_version'") or 0)
@@ -118,6 +161,9 @@ async def migrate(conn: Connection) -> None:
         if migration.version <= current:
             continue
         await conn.executescript(migration.sql)
+
+    if current < 4:
+        await _migrate_v4(conn)
 
     await conn.execute(
         "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",

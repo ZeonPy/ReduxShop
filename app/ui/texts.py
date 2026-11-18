@@ -158,26 +158,51 @@ def invoice_text(settings: RuntimeConfig, order: Order) -> str:
 
 
 def user_order_text(settings: RuntimeConfig, order: Order) -> str:
-    return (
-        f"🧾 Заказ #{order.id}\n"
-        f"Товар: {order.product_title}\n"
-        f"Сумма: {money(settings, order.price)}\n"
-        f"Статус: {status_label(order.status)}\n"
-        f"Создан: {fmt_dt(order.created_at)}"
-    )
+    lines = [
+        f"🧾 Заказ #{order.id}",
+        f"Товар: {order.product_title}",
+        f"Сумма: {money(settings, order.price)}",
+        f"Статус: {status_label(order.status)}",
+        f"Создан: {fmt_dt(order.created_at)}",
+    ]
+    if order.provider_phone and (
+        order.status == OrderStatus.PROCESSING or order.sms_code
+    ):
+        lines.append(f"Номер: {order.provider_phone}")
+    if order.status == OrderStatus.PROCESSING:
+        lines.append("")
+        lines.append("⏳ Номер уже куплен. Жду SMS — код придёт сюда автоматически.")
+    if order.sms_code:
+        lines.append(f"Код: {order.sms_code}")
+    if order.provider_error and order.status == OrderStatus.CANCELLED:
+        lines.append(f"Причина: {order.provider_error}")
+    return "\n".join(lines)
 
 
 def admin_order_text(settings: RuntimeConfig, order: Order) -> str:
-    return (
-        f"🧾 Заказ #{order.id}\n"
-        f"Клиент: {display_order_user(order)}\n"
-        f"Товар: {order.product_title}\n"
-        f"Сумма: {money(settings, order.price)}\n"
-        f"Статус: {status_label(order.status)}\n"
-        f"Создан: {fmt_dt(order.created_at)}\n"
-        f"Оплачен: {fmt_dt(order.paid_at)}\n"
-        f"Выдан: {fmt_dt(order.delivered_at)}"
-    )
+    lines = [
+        f"🧾 Заказ #{order.id}",
+        f"Клиент: {display_order_user(order)}",
+        f"Товар: {order.product_title}",
+        f"Сумма: {money(settings, order.price)}",
+        f"Закупка: {money(settings, order.cost)}",
+        f"Прибыль: {money(settings, order.profit)}",
+        f"Статус: {status_label(order.status)}",
+        f"Создан: {fmt_dt(order.created_at)}",
+        f"Оплачен: {fmt_dt(order.paid_at)}",
+        f"Выдан: {fmt_dt(order.delivered_at)}",
+    ]
+    if order.provider:
+        lines.append(f"Провайдер: {order.provider}")
+    if order.provider_id:
+        lines.append(f"Активация: {order.provider_id}")
+    if order.provider_phone:
+        lines.append(f"Номер: {order.provider_phone}")
+    if order.sms_code:
+        lines.append(f"SMS-код: {order.sms_code}")
+    if order.provider_error:
+        lines.append(f"Ошибка: {order.provider_error}")
+    return "\n".join(lines)
 
 
 def product_admin_text(settings: RuntimeConfig, product: Product) -> str:
@@ -188,6 +213,8 @@ def product_admin_text(settings: RuntimeConfig, product: Product) -> str:
         f"Категория: {product.category}\n"
         f"Название: {product.title}\n"
         f"Цена: {money(settings, product.price)}\n"
+        f"Закупка: {money(settings, product.cost)}\n"
+        f"Прибыль: {money(settings, product.profit)}\n"
         f"В наличии: {product.stock} шт.\n"
         f"Активен: {active}\n\n"
         f"Описание: {description}"
@@ -229,11 +256,27 @@ def ticket_admin_text(ticket: Ticket, messages: list[TicketMessage]) -> str:
 
 
 def stats_text(settings: RuntimeConfig, stats: Stats) -> str:
+    provider_total = stats.provider_delivered + stats.provider_failed
+    provider_line = ""
+    if provider_total:
+        provider_line = (
+            f"📡 SMSFast: доставлено {stats.provider_delivered}, "
+            f"сбоев {stats.provider_failed}, "
+            f"доставляемость {stats.deliverability}%\n"
+        )
     return (
         f"📊 Статистика {settings.shop_name}\n\n"
         f"👥 Клиентов: {stats.users}\n"
         f"🧾 Заказов: {stats.orders} (выдано {stats.delivered})\n"
+        f"🟢 Оплачено, ждёт выдачи: {stats.paid}\n"
+        f"🔵 Ждём SMS: {stats.processing}\n"
+        f"❌ Отменено: {stats.cancelled}\n"
+        f"{provider_line}"
+        f"\n"
         f"💰 Выручка: {money(settings, stats.revenue)}\n"
+        f"📦 Закупка: {money(settings, stats.cost)}\n"
+        f"📈 Прибыль: {money(settings, stats.profit)}\n"
+        f"🧮 Маржа: {stats.margin}%\n"
         f"🆘 Открытых обращений: {stats.open_tickets}"
     )
 
@@ -245,6 +288,41 @@ def delivery_text(order: Order, item: str) -> str:
         f"<pre>{html.escape(item)}</pre>\n\n"
         "Сохрани данные. Не передавай номер и коды третьим лицам.\n"
         "Если что-то не работает — открой «🆘 Поддержка» и укажи номер заказа."
+    )
+
+
+def sms_wait_text(order: Order, phone: str) -> str:
+    return (
+        f"📲 Заказ #{order.id}: номер готов!\n\n"
+        f"Товар: {html.escape(order.product_title)}\n"
+        f"Номер: <code>{html.escape(phone)}</code>\n\n"
+        "1. Открой нужный сервис и введи этот номер.\n"
+        "2. Запроси код подтверждения.\n"
+        "3. Код придёт сюда автоматически — ничего нажимать не нужно.\n\n"
+        "⏳ Обычно SMS приходит за 1–5 минут. Не закрывай заказ и не вводи "
+        "номер повторно. Если SMS нет 15 минут — напиши в «🆘 Поддержка»."
+    )
+
+
+def sms_delivery_text(order: Order, phone: str, code: str) -> str:
+    return (
+        f"🎁 Заказ #{order.id} выдан!\n\n"
+        f"Товар: {html.escape(order.product_title)}\n"
+        f"Номер: <code>{html.escape(phone)}</code>\n"
+        f"Код: <code>{html.escape(code)}</code>\n\n"
+        "Введи код в сервисе, для которого покупал номер.\n"
+        "Сохрани данные. Не передавай номер и коды третьим лицам.\n"
+        "Если код не подошёл — открой «🆘 Поддержка» и укажи номер заказа."
+    )
+
+
+def sms_failed_text(order: Order, reason: str) -> str:
+    return (
+        f"⚠️ Заказ #{order.id}: не удалось получить SMS\n\n"
+        f"Товар: {html.escape(order.product_title)}\n"
+        f"Причина: {html.escape(reason)}\n\n"
+        "Оплата не потеряна: оператор вернёт деньги или выдаст номер вручную. "
+        "Напиши в «🆘 Поддержка» и укажи номер заказа."
     )
 
 
@@ -268,9 +346,11 @@ def settings_text(
         f"Реквизиты: {details}\n\n"
         f"Прайс: ×{rules.cheap_multiplier} до {rules.cheap_limit} {settings.currency}, "
         f"×{rules.expensive_multiplier} дороже, минимум {rules.min_price} {settings.currency}\n"
+        f"Доставляемость SMS: {rules.deliverability}% (резерв в цене)\n"
         f"Товаров в каталоге: {products}\n"
         f"Баннеры: {banners} · своих {banners_custom} из {banner_total}\n"
-        f"Автооплата: {'включена' if settings.auto_payment_enabled else 'выключена'}\n\n"
+        f"Автооплата: {'включена' if settings.auto_payment_enabled else 'выключена'}\n"
+        f"SMSFast: {'подключён · ' + settings.smsfast_service if settings.smsfast_ready else 'не настроен'}\n\n"
         "Выбери, что изменить 👇"
     )
 
@@ -298,6 +378,64 @@ def banner_screen_text(screen_label: str, has_custom: bool) -> str:
     )
 
 
+def smsfast_admin_text(
+    settings: RuntimeConfig,
+    *,
+    countries: int,
+    mapped: int,
+    with_cost: int,
+    last_sync: str,
+    balance: float | None = None,
+    delivered: int = 0,
+    failed: int = 0,
+    deliverability: int = 0,
+) -> str:
+    service = settings.smsfast_service
+    service_label = {
+        "ot": "Любой другой",
+        "tg": "Telegram",
+        "wa": "WhatsApp",
+        "go": "Google",
+        "lf": "TikTok",
+        "ds": "Discord",
+        "am": "Amazon",
+        "mt": "Steam",
+        "wx": "Apple",
+    }.get(service, service)
+    state = "🟢 включён" if settings.smsfast_enabled else "🔴 выключен"
+    if not settings.smsfast_api_key:
+        state += " · ключ не задан"
+    balance_line = (
+        "—"
+        if balance is None
+        else f"{balance:.2f} {settings.currency}".replace(".", ",")
+    )
+    return (
+        "📡 SMSFast — автовыдача номеров\n\n"
+        f"Статус: {state}\n"
+        f"API-ключ: {settings.smsfast_key_masked}\n"
+        f"Сервис: {service} · {service_label}\n"
+        f"Адрес API: {settings.smsfast_base_url}\n"
+        f"Баланс: {balance_line}\n\n"
+        f"Стран в каталоге: {countries}\n"
+        f"Привязано к SMSFast: {mapped}\n"
+        f"С закупочной ценой: {with_cost}\n"
+        f"Последняя синхронизация: {fmt_dt(last_sync)}\n"
+        f"Фактическая доставляемость: "
+        + (
+            f"{deliverability}% ({delivered} успешных, {failed} сбоев)\n"
+            if delivered + failed
+            else "пока нет данных\n"
+        )
+        + f"Резерв в ценах: {settings.pricing.deliverability}% доставляемости\n\n"
+        "После оплаты бот сам покупает номер, присылает его клиенту и ждёт "
+        "SMS. Код приходит в этот же чат. Если SMS нет — активация "
+        "отменяется с возвратом на баланс SMSFast.\n\n"
+        "«Синхронизировать цены» подтягивает реальную закупку и пересчитывает "
+        "розницу по правилам наценки."
+    )
+
+
 def startup_text(
     settings: RuntimeConfig,
     *,
@@ -315,6 +453,8 @@ def startup_text(
         f"Товаров в каталоге: {products}\n"
         f"Прайс: ×{cheap_multiplier} до {cheap_limit} {settings.currency}, "
         f"×{expensive_multiplier} дороже · минимум {min_price} {settings.currency}\n"
+        f"Доставляемость SMS: {settings.pricing.deliverability}%\n"
         f"Автооплата: {payment}\n"
+        f"SMSFast: {'подключён · ' + settings.smsfast_service if settings.smsfast_ready else 'не настроен'}\n"
         f"Баннеры: {'включены' if settings.banners_enabled else 'выключены'}"
     )

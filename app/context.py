@@ -8,9 +8,11 @@ from app.db import Database
 from app.runtime import RuntimeConfig
 from app.services.bootstrap import CatalogService
 from app.services.config import ConfigService
+from app.services.fulfillment import FulfillmentService
 from app.services.notifications import Notifier
 from app.services.orders import OrderService
 from app.services.payments import PaymentService
+from app.services.smsfast import SmsFastClient
 from app.services.tickets import TicketService
 from app.ui.banners import BannerService
 
@@ -27,6 +29,8 @@ class AppContext:
     payments: PaymentService
     tickets: TicketService
     config_service: ConfigService
+    smsfast: SmsFastClient
+    fulfillment: FulfillmentService
 
     @classmethod
     def build(
@@ -38,6 +42,8 @@ class AppContext:
     ) -> "AppContext":
         banners = BannerService(bot, settings)
         notifier = Notifier(bot, settings, banners)
+        smsfast = SmsFastClient(settings)
+        fulfillment = FulfillmentService(db, notifier, settings, smsfast)
         return cls(
             settings=settings,
             db=db,
@@ -45,8 +51,10 @@ class AppContext:
             banners=banners,
             notifier=notifier,
             catalog=CatalogService(db, settings),
-            orders=OrderService(db, notifier),
+            orders=OrderService(db, notifier, fulfillment),
             payments=PaymentService(bot, settings),
             tickets=TicketService(db),
             config_service=config_service,
+            smsfast=smsfast,
+            fulfillment=fulfillment,
         )
