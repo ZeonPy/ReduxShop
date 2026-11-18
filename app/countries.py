@@ -1,9 +1,27 @@
 """Страны-категории, полученные с simdrop.io (актуально на 17.11.2026).
 
-Формат: (флаг, название, телефонный код, цена от, доступных номеров).
+`_RAW_COUNTRIES` хранит исходные данные в формате simdrop:
+(флаг, название, телефонный код, закупочная цена, доступных номеров).
+
+Наружу отдаём типизированный `COUNTRIES`, чтобы код не зависел от порядка
+кортежей и опечатки в индексах ловились сразу.
 """
 
-COUNTRIES = (
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class Country:
+    emoji: str
+    name: str
+    phone: str
+    wholesale: int
+    available: int
+
+
+_RAW_COUNTRIES: tuple[tuple[str, str, str, int, int], ...] = (
     ("🇦🇹", "Австрия", "+43", 60, 574798),
     ("🇨🇦", "Канада", "+1", 28, 573069),
     ("🇧🇪", "Бельгия", "+32", 143, 526027),
@@ -198,3 +216,5 @@ COUNTRIES = (
     ("🇹🇲", "Туркменистан", "+993", 31, 100),
     ("🇲🇪", "Черногория", "+382", 31, 100),
 )
+
+COUNTRIES: tuple[Country, ...] = tuple(Country(*row) for row in _RAW_COUNTRIES)
