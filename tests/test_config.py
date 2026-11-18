@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app.config import ConfigurationError
 from app.db import Database
 from app.pricing import PricingRules
 from app.services.bootstrap import CatalogService
@@ -31,6 +32,13 @@ class ConfigServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.config.pricing, PricingRules())
         self.assertTrue(self.config.banners_enabled)
         self.assertEqual(self.config.banner_file_ids, {})
+
+    def test_bot_token_validation(self) -> None:
+        make_settings().validate()
+        with self.assertRaises(ConfigurationError):
+            make_settings(bot_token="").validate()
+        with self.assertRaises(ConfigurationError):
+            make_settings(bot_token="ghp_abcdef").validate()
 
     async def test_update_shop_name_and_link(self) -> None:
         self.assertFalse(

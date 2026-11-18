@@ -114,6 +114,13 @@ class Settings:
                 "Не найден токен бота. Заполни BOT_TOKEN=... в .env "
                 "или в переменных окружения Bothost."
             )
+        if ":" not in self.bot_token or self.bot_token.startswith(
+            ("ghp_", "github_pat_")
+        ):
+            raise ConfigurationError(
+                "BOT_TOKEN не похож на токен Telegram. Нужен токен из @BotFather "
+                "вида 123456789:AA..., а не GitHub-токен."
+            )
 
 
 def load_settings() -> Settings:
@@ -132,7 +139,7 @@ def load_settings() -> Settings:
     db_path = os.getenv("DB_PATH", "").strip() or str(Path(data_dir) / "shop.db")
 
     return Settings(
-        bot_token=os.getenv("BOT_TOKEN", "").strip(),
+        bot_token=os.getenv("BOT_TOKEN", "").strip().strip("\"'"),
         admin_ids=_parse_admin_ids(os.getenv("ADMIN_IDS", "")),
         shop_name=os.getenv("SHOP_NAME", "ReduxShop").strip() or "ReduxShop",
         shop_link=os.getenv("SHOP_LINK", "https://t.me/reduxstore").strip(),

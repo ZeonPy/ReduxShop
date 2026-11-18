@@ -8,6 +8,7 @@ import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramUnauthorizedError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
@@ -70,6 +71,8 @@ def build_dispatcher(ctx: AppContext) -> Dispatcher:
 async def _before_polling(ctx: AppContext) -> None:
     state = await ctx.catalog.ensure_ready()
     await ctx.fulfillment.resume_pending()
+    me = await ctx.bot.get_me()
+    logger.info("Telegram: @%s (id %s)", me.username, me.id)
     await ctx.bot.delete_webhook(drop_pending_updates=False)
     await ctx.bot.set_my_commands(
         [
@@ -137,8 +140,15 @@ async def run(settings: Settings) -> None:
     dp = build_dispatcher(ctx)
 
     try:
-        await _before_polling(ctx)
-        await dp.start_polling(bot)
+        try:
+            await _before_polling(ctx)
+            await dp.start_polling(bot)
+        except TelegramUnauthorizedError as exc:
+            raise ConfigurationError(
+                "Telegram отклонил BOT_TOKEN (401 Unauthorized). "
+                "Токен отозван, бот удалён или указан неверно. "
+                "Получи новый токен у @BotFather и обнови BOT_TOKEN на Bothost."
+            ) from exc
     finally:
         await ctx.smsfast.close()
         await db.close()
